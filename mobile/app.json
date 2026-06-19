@@ -9,12 +9,15 @@
     "scheme": "dallas",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.janduplessis.dallas"
+      "bundleIdentifier": "com.janduplessis.dallas",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.janduplessis.dallas",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -28,6 +31,13 @@
       "expo-router",
       "expo-secure-store",
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7b27af12-2a3d-437a-869e-58e7b4d01bc4"
+      }
+    },
+    "owner": "janduplessis883s-team"
   }
 }

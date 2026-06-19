@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,6 +21,12 @@ import { registerForPushNotificationsAsync } from '../src/lib/notifications';
 import { isSupabaseConfigured, supabase } from '../src/lib/supabase';
 
 type AuthMode = 'sign-in' | 'sign-up' | 'forgot-password';
+
+type HomeProfile = {
+  avatar_path: string | null;
+  display_name: string | null;
+  home_cover_image_path: string | null;
+};
 
 const homeLinks = [
   {
@@ -53,6 +61,20 @@ const homeLinks = [
   },
 ] as const;
 
+function getAvatarUrl(session: Session | null) {
+  const avatarUrl = session?.user.user_metadata?.avatar_url;
+
+  return typeof avatarUrl === 'string' ? avatarUrl : '';
+}
+
+function getPublicAvatarUrl(path: string) {
+  return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+}
+
+function getPublicHomeCoverUrl(path: string) {
+  return supabase.storage.from('home-covers').getPublicUrl(path).data.publicUrl;
+}
+
 export default function HomeScreen() {
   const [authMode, setAuthMode] = useState<AuthMode>('sign-in');
   const [email, setEmail] = useState('');
@@ -61,11 +83,17 @@ export default function HomeScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [authMessage, setAuthMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const [profile, setProfile] = useState<HomeProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [pushStatus, setPushStatus] = useState('Not requested');
   const configured = useMemo(() => isSupabaseConfigured(), []);
-  const preferredNameFromSession = getPreferredName(session);
+  const preferredNameFromSession = profile?.display_name ?? getPreferredName(session);
+  const avatarUrl = profile?.avatar_path ? getPublicAvatarUrl(profile.avatar_path) : getAvatarUrl(session);
+  const homeCoverUrl = profile?.home_cover_image_path
+    ? getPublicHomeCoverUrl(profile.home_cover_image_path)
+    : '';
 
   useEffect(() => {
     let mounted = true;
@@ -77,13 +105,35 @@ export default function HomeScreen() {
 
       setSession(data.session);
       setSessionLoading(false);
+
+      if (data.session) {
+        loadHomeProfile(data.session.user.id).then((nextProfile) => {
+          if (mounted) {
+            setProfile(nextProfile);
+          }
+        });
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) {
+        return;
+      }
+
       setSession(nextSession);
+      setAvatarFailed(false);
+      setProfile(null);
       setSessionLoading(false);
+
+      if (nextSession) {
+        loadHomeProfile(nextSession.user.id).then((nextProfile) => {
+          if (mounted) {
+            setProfile(nextProfile);
+          }
+        });
+      }
     });
 
     return () => {
@@ -120,6 +170,9 @@ export default function HomeScreen() {
     setAuthLoading(true);
     setAuthMessage('');
 
+    const signupConfirmationRedirectUrl =
+      process.env.EXPO_PUBLIC_SIGNUP_CONFIRMATION_URL ?? Linking.createURL('/');
+
     const result =
       authMode === 'sign-in'
         ? await supabase.auth.signInWithPassword({
@@ -130,6 +183,7 @@ export default function HomeScreen() {
             email: trimmedEmail,
             password,
             options: {
+              emailRedirectTo: signupConfirmationRedirectUrl,
               data: {
                 phone_number: trimmedPhoneNumber,
                 preferred_name: trimmedPreferredName,
@@ -213,35 +267,90 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardArea}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.eyebrow}>Dallas</Text>
-        <Text style={styles.title}>
-          {session ? `Welcome${preferredNameFromSession ? `, ${preferredNameFromSession}` : ''}` : 'Start with secure access'}
-        </Text>
-        <Text style={styles.copy}>
-          {session
-            ? 'Choose what you want to work on today.'
-            : 'Sign in to prepare your recovery plan, reminders, and accountability support.'}
-        </Text>
-
         {sessionLoading ? (
           <View style={styles.loadingPanel}>
             <ActivityIndicator color="#38635D" />
             <Text style={styles.loadingText}>Checking session...</Text>
           </View>
         ) : session ? (
-          <View style={styles.homePanel}>
-            {homeLinks.map((item) => (
-              <Link key={item.href} href={item.href} asChild>
-                <Pressable style={styles.homeLink}>
-                  <View style={styles.homeLinkCopy}>
-                    <Text style={styles.homeLinkTitle}>{item.label}</Text>
-                    <Text style={styles.homeLinkDescription}>{item.description}</Text>
+          <>
+            {homeCoverUrl ? (
+              <ImageBackground
+                source={{ uri: homeCoverUrl }}
+                style={styles.dashboardHero}
+                imageStyle={styles.dashboardHeroImage}
+              >
+                <View style={styles.dashboardHeroOverlay}>
+                  <View style={styles.heroTopRow}>
+                    <View style={styles.avatarFrame}>
+                      {avatarUrl && !avatarFailed ? (
+                        <Image
+                          source={{ uri: avatarUrl }}
+                          style={styles.avatarImage}
+                          onError={() => setAvatarFailed(true)}
+                        />
+                      ) : (
+                        <Text style={styles.avatarInitial}>
+                          {getInitial(preferredNameFromSession, session.user.email)}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={styles.heroCopy}>
+                      <Text style={styles.heroEyebrow}>Dallas</Text>
+                      <Text style={styles.heroMeta}>{session.user.email ?? 'Signed in'}</Text>
+                    </View>
                   </View>
-                  <Text style={styles.homeLinkArrow}>{'>'}</Text>
-                </Pressable>
-              </Link>
-            ))}
-            <StatusRow label="Signed in as" value={session.user.email ?? 'Unknown user'} />
+                  <Text style={styles.heroTitle}>
+                    {preferredNameFromSession ? `Welcome, ${preferredNameFromSession}` : 'Welcome'}
+                  </Text>
+                  <Text style={styles.heroSubtitle}>Choose a recovery practice for today.</Text>
+                </View>
+              </ImageBackground>
+            ) : (
+              <View style={styles.dashboardHero}>
+                <View style={styles.heroTopRow}>
+                  <View style={styles.avatarFrame}>
+                    {avatarUrl && !avatarFailed ? (
+                      <Image
+                        source={{ uri: avatarUrl }}
+                        style={styles.avatarImage}
+                        onError={() => setAvatarFailed(true)}
+                      />
+                    ) : (
+                      <Text style={styles.avatarInitial}>
+                        {getInitial(preferredNameFromSession, session.user.email)}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.heroCopy}>
+                    <Text style={styles.heroEyebrow}>Dallas</Text>
+                    <Text style={styles.heroMeta}>{session.user.email ?? 'Signed in'}</Text>
+                  </View>
+                </View>
+                <Text style={styles.heroTitle}>
+                  {preferredNameFromSession ? `Welcome, ${preferredNameFromSession}` : 'Welcome'}
+                </Text>
+                <Text style={styles.heroSubtitle}>Choose a recovery practice for today.</Text>
+              </View>
+            )}
+
+            <View style={styles.homeGrid}>
+              {homeLinks.map((item) => (
+                <Link key={item.href} href={item.href} asChild>
+                  <Pressable style={styles.homeLink}>
+                    <View style={styles.homeLinkIcon}>
+                      <Text style={styles.homeLinkIconText}>{item.label.charAt(0)}</Text>
+                    </View>
+                    <View style={styles.homeLinkCopy}>
+                      <Text style={styles.homeLinkTitle}>{item.label}</Text>
+                      <Text style={styles.homeLinkDescription}>{item.description}</Text>
+                    </View>
+                    <Text style={styles.homeLinkArrow}>{'>'}</Text>
+                  </Pressable>
+                </Link>
+              ))}
+            </View>
+
             <Pressable
               disabled={authLoading}
               style={[styles.secondaryButton, authLoading && styles.disabledButton]}
@@ -251,8 +360,14 @@ export default function HomeScreen() {
                 {authLoading ? 'Signing out...' : 'Sign out'}
               </Text>
             </Pressable>
-          </View>
+          </>
         ) : (
+          <>
+          <Text style={styles.eyebrow}>Dallas</Text>
+          <Text style={styles.title}>Start with secure access</Text>
+          <Text style={styles.copy}>
+            Sign in to prepare your recovery plan, reminders, and accountability support.
+          </Text>
           <View style={styles.authPanel}>
             {authMode === 'forgot-password' ? (
               <View style={styles.formHeader}>
@@ -407,19 +522,24 @@ export default function HomeScreen() {
               </Pressable>
             ) : null}
           </View>
+          </>
         )}
 
         {authMessage ? <Text style={styles.message}>{authMessage}</Text> : null}
 
-        <View style={styles.panel}>
-          <StatusRow label="Supabase config" value={configured ? 'Ready' : 'Missing .env values'} />
-          <StatusRow label="App environment" value={process.env.EXPO_PUBLIC_APP_ENV ?? 'development'} />
-          <StatusRow label="Notifications" value={pushStatus} />
-        </View>
+        {!sessionLoading && !session ? (
+          <>
+            <View style={styles.panel}>
+              <StatusRow label="Supabase config" value={configured ? 'Ready' : 'Missing .env values'} />
+              <StatusRow label="App environment" value={process.env.EXPO_PUBLIC_APP_ENV ?? 'development'} />
+              <StatusRow label="Notifications" value={pushStatus} />
+            </View>
 
-        <Pressable style={styles.button} onPress={handleNotificationCheck}>
-          <Text style={styles.buttonText}>Check notifications</Text>
-        </Pressable>
+            <Pressable style={styles.button} onPress={handleNotificationCheck}>
+              <Text style={styles.buttonText}>Check notifications</Text>
+            </Pressable>
+          </>
+        ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -444,6 +564,24 @@ function getPreferredName(session: Session | null) {
   return typeof preferredName === 'string' ? preferredName : '';
 }
 
+async function loadHomeProfile(userId: string) {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('avatar_path, display_name, home_cover_image_path')
+    .eq('id', userId)
+    .maybeSingle<HomeProfile>();
+
+  if (error) {
+    return null;
+  }
+
+  return data;
+}
+
+function getInitial(displayName: string, email: string | undefined) {
+  return (displayName || email || 'D').trim().charAt(0).toUpperCase();
+}
+
 function StatusRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
@@ -463,9 +601,9 @@ const styles = StyleSheet.create({
   },
   container: {
     gap: 18,
-    justifyContent: 'center',
     minHeight: '100%',
     padding: 24,
+    paddingTop: 36,
   },
   eyebrow: {
     color: '#38635D',
@@ -485,6 +623,74 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
   },
+  dashboardHero: {
+    backgroundColor: '#17211F',
+    borderRadius: 8,
+    gap: 16,
+    minHeight: 230,
+    overflow: 'hidden',
+    padding: 20,
+  },
+  dashboardHeroImage: {
+    borderRadius: 8,
+  },
+  dashboardHeroOverlay: {
+    backgroundColor: 'rgba(18, 31, 28, 0.66)',
+    flex: 1,
+    gap: 16,
+    margin: -20,
+    padding: 20,
+  },
+  heroTopRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  avatarFrame: {
+    alignItems: 'center',
+    backgroundColor: '#F7F3EA',
+    borderRadius: 28,
+    height: 56,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 56,
+  },
+  avatarImage: {
+    height: 56,
+    width: 56,
+  },
+  avatarInitial: {
+    color: '#38635D',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  heroCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  heroEyebrow: {
+    color: '#BFD1CA',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0,
+    textTransform: 'uppercase',
+  },
+  heroMeta: {
+    color: '#E5EDE7',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  heroTitle: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '900',
+    lineHeight: 39,
+  },
+  heroSubtitle: {
+    color: '#F7F3EA',
+    fontSize: 16,
+    lineHeight: 23,
+  },
   panel: {
     backgroundColor: '#FFFFFF',
     borderColor: '#DED7C9',
@@ -500,31 +706,42 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: 16,
   },
-  homePanel: {
+  homeGrid: {
+    gap: 10,
+  },
+  homeLink: {
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderColor: '#DED7C9',
     borderRadius: 8,
     borderWidth: 1,
-    overflow: 'hidden',
-  },
-  homeLink: {
-    alignItems: 'center',
-    borderBottomColor: '#ECE5D8',
-    borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    minHeight: 76,
-    paddingHorizontal: 16,
+    minHeight: 82,
+    paddingHorizontal: 14,
     paddingVertical: 12,
+  },
+  homeLinkIcon: {
+    alignItems: 'center',
+    backgroundColor: '#ECE5D8',
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  homeLinkIconText: {
+    color: '#38635D',
+    fontSize: 15,
+    fontWeight: '900',
   },
   homeLinkCopy: {
     flex: 1,
-    gap: 3,
+    gap: 4,
   },
   homeLinkTitle: {
     color: '#17211F',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   homeLinkDescription: {
     color: '#4F5D58',

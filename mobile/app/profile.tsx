@@ -24,6 +24,7 @@ const openAiApiKeyStorageKey = 'dallas.openai_api_key';
 type ProfileRow = {
   avatar_path: string | null;
   display_name: string | null;
+  home_cover_image_path: string | null;
   phone_number: string | null;
 };
 
@@ -31,6 +32,8 @@ export default function ProfileScreen() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [homeCoverImageFailed, setHomeCoverImageFailed] = useState(false);
+  const [homeCoverImageUrl, setHomeCoverImageUrl] = useState('');
   const [imageFailed, setImageFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -40,6 +43,7 @@ export default function ProfileScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [savingOpenAiKey, setSavingOpenAiKey] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [savingHomeCoverImage, setSavingHomeCoverImage] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
@@ -75,11 +79,13 @@ export default function ProfileScreen() {
       setDisplayName(getMetadataValue(metadata.preferred_name));
       setPhoneNumber(getMetadataValue(metadata.phone_number));
       setAvatarUrl(getMetadataValue(metadata.avatar_url));
+      setHomeCoverImageUrl(getMetadataValue(metadata.home_cover_image_url));
       setImageFailed(false);
+      setHomeCoverImageFailed(false);
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('avatar_path, display_name, phone_number')
+        .select('avatar_path, display_name, home_cover_image_path, phone_number')
         .eq('id', nextSession.user.id)
         .maybeSingle<ProfileRow>();
 
@@ -98,6 +104,11 @@ export default function ProfileScreen() {
         if (data.avatar_path) {
           setAvatarUrl(getPublicAvatarUrl(data.avatar_path));
           setImageFailed(false);
+        }
+
+        if (data.home_cover_image_path) {
+          setHomeCoverImageUrl(getPublicHomeCoverUrl(data.home_cover_image_path));
+          setHomeCoverImageFailed(false);
         }
       }
 
@@ -248,6 +259,91 @@ export default function ProfileScreen() {
     setMessage('Avatar updated.');
   }
 
+  async function handleHomeCoverImageUpload() {
+    if (!session) {
+      setMessage('Sign in before uploading a home cover image.');
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      setMessage('Photo library permission is needed to choose a home cover image.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [16, 10],
+      mediaTypes: ['images'],
+      quality: 0.86,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    const contentType = asset.mimeType ?? 'image/jpeg';
+    const extension = getImageExtension(contentType, asset.uri);
+    const coverPath = `${session.user.id}/home-cover.${extension}`;
+
+    setHomeCoverImageUrl(asset.uri);
+    setHomeCoverImageFailed(false);
+    setSavingHomeCoverImage(true);
+    setMessage('');
+
+    const response = await fetch(asset.uri);
+    const imageData = await response.arrayBuffer();
+    const { error: uploadError } = await supabase.storage
+      .from('home-covers')
+      .upload(coverPath, imageData, {
+        cacheControl: '0',
+        contentType,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      setSavingHomeCoverImage(false);
+      setMessage(uploadError.message);
+      return;
+    }
+
+    const publicCoverUrl = getPublicHomeCoverUrl(coverPath, Date.now());
+
+    const { error: authError } = await supabase.auth.updateUser({
+      data: {
+        home_cover_image_path: coverPath,
+        home_cover_image_url: publicCoverUrl,
+      },
+    });
+
+    if (authError) {
+      setSavingHomeCoverImage(false);
+      setMessage(authError.message);
+      return;
+    }
+
+    const { error: profileError } = await supabase.from('profiles').upsert({
+      display_name: displayName.trim() || null,
+      home_cover_image_path: coverPath,
+      id: session.user.id,
+      phone_number: phoneNumber.trim() || null,
+      updated_at: new Date().toISOString(),
+    });
+
+    setSavingHomeCoverImage(false);
+
+    if (profileError) {
+      setMessage(profileError.message);
+      return;
+    }
+
+    setHomeCoverImageUrl(publicCoverUrl);
+    setHomeCoverImageFailed(false);
+    setMessage('Home cover image updated.');
+  }
+
   async function handleChangePassword() {
     if (!session) {
       setMessage('Sign in before changing your password.');
@@ -376,6 +472,44 @@ export default function ProfileScreen() {
             >
               <Text style={styles.secondaryButtonText}>
                 {savingAvatar ? 'Uploading...' : 'Upload avatar'}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Home cover image</Text>
+            <Text style={styles.mutedText}>
+              Upload a wide inspirational image for the welcome area on your home page.
+            </Text>
+
+            <View style={styles.coverPreview}>
+              {homeCoverImageUrl && !homeCoverImageFailed ? (
+                <Image
+                  source={{ uri: homeCoverImageUrl }}
+                  style={styles.coverImage}
+                  onError={() => {
+                    setHomeCoverImageFailed(true);
+                    setMessage('Home cover uploaded, but the image URL could not be displayed. Check that the home-covers storage bucket is public and the schema has been applied.');
+                  }}
+                />
+              ) : (
+                <View style={styles.coverPlaceholder}>
+                  <Text style={styles.coverPlaceholderText}>No home cover image yet</Text>
+                </View>
+              )}
+            </View>
+
+            <Pressable
+              disabled={savingHomeCoverImage}
+              style={[styles.secondaryButton, savingHomeCoverImage && styles.disabledButton]}
+              onPress={handleHomeCoverImageUpload}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {savingHomeCoverImage
+                  ? 'Uploading...'
+                  : homeCoverImageUrl
+                    ? 'Change home cover'
+                    : 'Upload home cover'}
               </Text>
             </Pressable>
           </View>
@@ -564,6 +698,12 @@ function getPublicAvatarUrl(path: string, cacheKey?: number) {
   return cacheKey ? `${publicUrl}?v=${cacheKey}` : publicUrl;
 }
 
+function getPublicHomeCoverUrl(path: string, cacheKey?: number) {
+  const publicUrl = supabase.storage.from('home-covers').getPublicUrl(path).data.publicUrl;
+
+  return cacheKey ? `${publicUrl}?v=${cacheKey}` : publicUrl;
+}
+
 function isInternationalPhoneNumber(value: string) {
   return /^\+[1-9]\d{7,14}$/.test(value);
 }
@@ -663,6 +803,29 @@ const styles = StyleSheet.create({
     color: '#4F5D58',
     fontSize: 14,
     lineHeight: 20,
+  },
+  coverPreview: {
+    backgroundColor: '#ECE5D8',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 160,
+    overflow: 'hidden',
+  },
+  coverImage: {
+    height: '100%',
+    width: '100%',
+  },
+  coverPlaceholder: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 16,
+  },
+  coverPlaceholderText: {
+    color: '#697570',
+    fontSize: 14,
+    fontWeight: '700',
   },
   infoRow: {
     borderBottomColor: '#ECE5D8',
