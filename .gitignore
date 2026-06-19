@@ -1,0 +1,48 @@
+.DS_Store
+**/.DS_Store
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Local environment
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Build output
+dist/
+**/dist/
+web-build/
+**/web-build/
+
+# Expo
+.expo/
+**/.expo/
+expo-env.d.ts
+**/expo-env.d.ts
+
+# Native build/signing output
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+ios/
+android/
+**/ios/
+**/android/
+
+# Logs and TypeScript cache
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.tsbuildinfo
+
+# Supabase local state
+supabase/.branches
+supabase/.temp

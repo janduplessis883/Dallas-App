@@ -1,0 +1,16 @@
+{
+  "name": "dallas-password-reset",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 0.0.0.0",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "vite": "^7.2.7"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dallas Password Reset</title>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <main class="screen">
+      <section class="panel">
+        <p class="eyebrow">Dallas</p>
+        <h1>Reset your password</h1>
+        <p class="copy">Choose a new password for your Dallas account.</p>
+
+        <form id="reset-form" class="form">
+          <label>
+            <span>New password</span>
+            <input
+              id="password"
+              autocomplete="new-password"
+              minlength="6"
+              placeholder="At least 6 characters"
+              required
+              type="password"
+            />
+          </label>
+
+          <label>
+            <span>Confirm password</span>
+            <input
+              id="confirm-password"
+              autocomplete="new-password"
+              minlength="6"
+              placeholder="Repeat your new password"
+              required
+              type="password"
+            />
+          </label>
+
+          <button id="submit-button" type="submit">Update password</button>
+        </form>
+
+        <p id="message" class="message" role="status"></p>
+      </section>
+    </main>
+  </body>
+</html>
