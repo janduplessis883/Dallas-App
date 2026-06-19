@@ -20,6 +20,8 @@ import type { Session } from '@supabase/supabase-js';
 import { registerForPushNotificationsAsync } from '../src/lib/notifications';
 import { isSupabaseConfigured, supabase } from '../src/lib/supabase';
 
+const loginLogo = require('../assets/login-logo.png');
+
 type AuthMode = 'sign-in' | 'sign-up' | 'forgot-password';
 
 type HomeProfile = {
@@ -48,6 +50,11 @@ const homeLinks = [
     description: 'Partners, check-ins, and shared commitments.',
     href: '/accountability',
     label: 'Accountability',
+  },
+  {
+    description: 'Prepare before, stay anchored during, and debrief after events.',
+    href: '/event-planning',
+    label: 'Event planning',
   },
   {
     description: 'Notification schedules and recovery prompts.',
@@ -363,6 +370,7 @@ export default function HomeScreen() {
           </>
         ) : (
           <>
+          <Image source={loginLogo} style={styles.loginLogo} />
           <Text style={styles.eyebrow}>Dallas</Text>
           <Text style={styles.title}>Start with secure access</Text>
           <Text style={styles.copy}>
@@ -622,6 +630,13 @@ const styles = StyleSheet.create({
     color: '#4F5D58',
     fontSize: 16,
     lineHeight: 24,
+  },
+  loginLogo: {
+    alignSelf: 'center',
+    height: 132,
+    marginBottom: -4,
+    resizeMode: 'contain',
+    width: 132,
   },
   dashboardHero: {
     backgroundColor: '#17211F',
