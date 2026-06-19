@@ -6,20 +6,22 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const form = document.querySelector('#reset-form');
 const message = document.querySelector('#message');
+const pageCopy = document.querySelector('#page-copy');
+const pageTitle = document.querySelector('#page-title');
 const submitButton = document.querySelector('#submit-button');
 const passwordInput = document.querySelector('#password');
 const confirmPasswordInput = document.querySelector('#confirm-password');
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  showMessage('Password reset is not configured. Missing Supabase environment variables.', true);
+  showMessage('This account page is not configured. Missing Supabase environment variables.', true);
   form.hidden = true;
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-initializeRecoverySession();
+initializeAuthLinkPage();
 
-form.addEventListener('submit', async (event) => {
+form?.addEventListener('submit', async (event) => {
   event.preventDefault();
 
   const password = passwordInput.value;
@@ -54,14 +56,27 @@ form.addEventListener('submit', async (event) => {
   showMessage('Password updated. You can now return to the Dallas app.');
 });
 
-async function initializeRecoverySession() {
-  const params = getRecoveryParams();
+async function initializeAuthLinkPage() {
+  const params = getAuthLinkParams();
+  const linkType = params.get('type');
+  const pathname = window.location.pathname;
   const accessToken = params.get('access_token');
   const refreshToken = params.get('refresh_token');
   const errorDescription = params.get('error_description');
 
   if (errorDescription) {
     showMessage(errorDescription, true);
+    form.hidden = true;
+    return;
+  }
+
+  if (linkType === 'signup' || pathname.includes('account-created')) {
+    showAccountCreated();
+    return;
+  }
+
+  if (linkType && linkType !== 'recovery') {
+    showMessage('This email link has been verified. You can return to the Dallas app.', false);
     form.hidden = true;
     return;
   }
@@ -86,7 +101,7 @@ async function initializeRecoverySession() {
   showMessage('Recovery link verified. Enter your new password.');
 }
 
-function getRecoveryParams() {
+function getAuthLinkParams() {
   const params = new URLSearchParams();
   const query = window.location.search.slice(1);
   const hash = window.location.hash.slice(1);
@@ -108,4 +123,11 @@ function appendParams(targetParams, value) {
 function showMessage(value, isError = false) {
   message.textContent = value;
   message.classList.toggle('error', isError);
+}
+
+function showAccountCreated() {
+  pageTitle.textContent = 'Account confirmed';
+  pageCopy.textContent = 'Your Dallas account has been created. Please return to the app and sign in.';
+  form.hidden = true;
+  showMessage('You can close this browser tab and open Dallas.');
 }
