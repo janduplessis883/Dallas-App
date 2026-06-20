@@ -59,7 +59,7 @@ form?.addEventListener('submit', async (event) => {
 async function initializeAuthLinkPage() {
   const params = getAuthLinkParams();
   const linkType = params.get('type');
-  const pathname = window.location.pathname;
+  const pathname = normalizePathname(window.location.pathname);
   const accessToken = params.get('access_token');
   const refreshToken = params.get('refresh_token');
   const errorDescription = params.get('error_description');
@@ -70,8 +70,20 @@ async function initializeAuthLinkPage() {
     return;
   }
 
-  if (linkType === 'signup' || pathname.includes('account-created')) {
+  if (pathname === '/account-created/') {
     showAccountCreated();
+    return;
+  }
+
+  if (pathname !== '/reset-password/') {
+    showMessage('This account link is not recognised. Please open the link from your Dallas email.', true);
+    form.hidden = true;
+    return;
+  }
+
+  if (linkType === 'signup') {
+    showMessage('This signup confirmation link should open the account-created page. Please try the latest email link.', true);
+    form.hidden = true;
     return;
   }
 
@@ -118,6 +130,10 @@ function appendParams(targetParams, value) {
   nextParams.forEach((nextValue, key) => {
     targetParams.set(key, nextValue);
   });
+}
+
+function normalizePathname(value) {
+  return value.endsWith('/') ? value : `${value}/`;
 }
 
 function showMessage(value, isError = false) {

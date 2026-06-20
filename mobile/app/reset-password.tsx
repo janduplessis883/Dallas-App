@@ -4,7 +4,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import * as Linking from 'expo-linking';
 import { Link } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../src/lib/supabase';
 

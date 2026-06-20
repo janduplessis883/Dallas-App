@@ -423,14 +423,14 @@ create policy "Users can delete their own home cover"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
-drop policy if exists "Profetic Vision covers are publicly readable" on storage.objects;
-create policy "Profetic Vision covers are publicly readable"
+drop policy if exists "Prophetic Vision covers are publicly readable" on storage.objects;
+create policy "Prophetic Vision covers are publicly readable"
   on storage.objects
   for select
   using (bucket_id = 'prophetic-vision-covers');
 
-drop policy if exists "Users can upload their own Profetic Vision cover" on storage.objects;
-create policy "Users can upload their own Profetic Vision cover"
+drop policy if exists "Users can upload their own Prophetic Vision cover" on storage.objects;
+create policy "Users can upload their own Prophetic Vision cover"
   on storage.objects
   for insert
   with check (
@@ -438,8 +438,8 @@ create policy "Users can upload their own Profetic Vision cover"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
-drop policy if exists "Users can update their own Profetic Vision cover" on storage.objects;
-create policy "Users can update their own Profetic Vision cover"
+drop policy if exists "Users can update their own Prophetic Vision cover" on storage.objects;
+create policy "Users can update their own Prophetic Vision cover"
   on storage.objects
   for update
   using (
@@ -451,8 +451,8 @@ create policy "Users can update their own Profetic Vision cover"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
-drop policy if exists "Users can delete their own Profetic Vision cover" on storage.objects;
-create policy "Users can delete their own Profetic Vision cover"
+drop policy if exists "Users can delete their own Prophetic Vision cover" on storage.objects;
+create policy "Users can delete their own Prophetic Vision cover"
   on storage.objects
   for delete
   using (

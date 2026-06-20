@@ -6,21 +6,24 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import * as Linking from 'expo-linking';
 import { Link } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
+import { deviceStorage } from '../src/lib/deviceStorage';
 import { registerForPushNotificationsAsync } from '../src/lib/notifications';
 import { isSupabaseConfigured, supabase } from '../src/lib/supabase';
 
 const loginLogo = require('../assets/login-logo.png');
+const importantInfoStorageKey = 'dallas.important_info_acknowledged';
+const defaultSignupConfirmationUrl = 'https://dallas-app.onrender.com/account-created/';
+const defaultPasswordResetUrl = 'https://dallas-app.onrender.com/reset-password/';
 
 type AuthMode = 'sign-in' | 'sign-up' | 'forgot-password';
 
@@ -39,7 +42,7 @@ const homeLinks = [
   {
     description: 'Short and long vision, audio reading, and AI rewrite.',
     href: '/prophetic-vision',
-    label: 'Profetic Vision',
+    label: 'Prophetic Vision',
   },
   {
     description: 'Guided reflection and structured support prompts.',
@@ -92,6 +95,8 @@ export default function HomeScreen() {
   const [authLoading, setAuthLoading] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [profile, setProfile] = useState<HomeProfile | null>(null);
+  const [importantInfoAccepted, setImportantInfoAccepted] = useState(false);
+  const [importantInfoLoading, setImportantInfoLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [pushStatus, setPushStatus] = useState('Not requested');
@@ -104,6 +109,22 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let mounted = true;
+
+    deviceStorage.getItem(importantInfoStorageKey).then((value) => {
+      if (!mounted) {
+        return;
+      }
+
+      setImportantInfoAccepted(value === 'true');
+      setImportantInfoLoading(false);
+    }).catch(() => {
+      if (!mounted) {
+        return;
+      }
+
+      setImportantInfoAccepted(false);
+      setImportantInfoLoading(false);
+    });
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) {
@@ -149,6 +170,16 @@ export default function HomeScreen() {
     };
   }, []);
 
+  async function handleAcceptImportantInfo() {
+    try {
+      await deviceStorage.setItem(importantInfoStorageKey, 'true');
+    } catch {
+      // Acknowledgement storage should not block entering the app.
+    }
+
+    setImportantInfoAccepted(true);
+  }
+
   async function handleAuthSubmit() {
     if (!configured) {
       setAuthMessage('Add Supabase URL and anon key to .env first.');
@@ -177,8 +208,10 @@ export default function HomeScreen() {
     setAuthLoading(true);
     setAuthMessage('');
 
-    const signupConfirmationRedirectUrl =
-      process.env.EXPO_PUBLIC_SIGNUP_CONFIRMATION_URL ?? Linking.createURL('/');
+    const signupConfirmationRedirectUrl = getConfiguredUrl(
+      process.env.EXPO_PUBLIC_SIGNUP_CONFIRMATION_URL,
+      defaultSignupConfirmationUrl,
+    );
 
     const result =
       authMode === 'sign-in'
@@ -230,8 +263,10 @@ export default function HomeScreen() {
     setAuthLoading(true);
     setAuthMessage('');
 
-    const resetRedirectUrl =
-      process.env.EXPO_PUBLIC_PASSWORD_RESET_URL ?? Linking.createURL('/reset-password');
+    const resetRedirectUrl = getConfiguredUrl(
+      process.env.EXPO_PUBLIC_PASSWORD_RESET_URL,
+      defaultPasswordResetUrl,
+    );
 
     const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
       redirectTo: resetRedirectUrl,
@@ -268,6 +303,84 @@ export default function HomeScreen() {
     } catch (error) {
       setPushStatus(error instanceof Error ? error.message : 'Notification setup failed');
     }
+  }
+
+  if (importantInfoLoading) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <View style={styles.loadingPanel}>
+          <ActivityIndicator color="#38635D" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!importantInfoAccepted) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <Image source={loginLogo} style={styles.importantLogo} />
+          <Text style={styles.eyebrow}>Dallas</Text>
+          <Text style={styles.title}>Important information</Text>
+          <Text style={styles.copy}>
+            Please read this before using Dallas. The app is designed to support reflection, planning, reminders, and
+            accountability. It is not a crisis service or a replacement for professional care.
+          </Text>
+
+          <View style={styles.warningPanel}>
+            <Text style={styles.warningTitle}>Not medical or clinical treatment</Text>
+            <Text style={styles.warningText}>
+              Dallas does not provide diagnosis, therapy, medical advice, detox support, emergency response, or
+              treatment. Decisions about health, medication, recovery, or safety should be made with qualified
+              professionals in your location.
+            </Text>
+          </View>
+
+          <ImportantInfoBlock
+            marker="1"
+            title="Use qualified local support"
+            items={[
+              'Speak with licensed healthcare, mental health, addiction, or recovery professionals when making care decisions.',
+              'Use your local emergency or crisis services if you may harm yourself, harm someone else, or need urgent help.',
+              'Choose accountability partners who are willing, informed, and appropriate for the type of support you need.',
+            ]}
+          />
+
+          <ImportantInfoBlock
+            marker="2"
+            title="What Dallas can help with"
+            items={[
+              'Organising recovery plans, event plans, reminders, and personal commitments.',
+              'Capturing reflective writing, prophetic vision notes, audio, and accountability check-ins.',
+              'Supporting motivation and structure through AI-assisted rewriting and prompts.',
+            ]}
+          />
+
+          <ImportantInfoBlock
+            marker="3"
+            title="What Dallas cannot do"
+            items={[
+              'It cannot monitor your safety, contact help on your behalf, or guarantee a response from another person.',
+              'It cannot replace therapy, medical care, sponsor support, or emergency services.',
+              'AI responses may be incomplete or wrong and should not be relied on for medical or crisis decisions.',
+            ]}
+          />
+
+          <View style={styles.responsibilityPanel}>
+            <Text style={styles.responsibilityTitle}>Your responsibility</Text>
+            <Text style={styles.responsibilityText}>
+              By continuing, you acknowledge these limits and agree to seek appropriate local professional or emergency
+              support whenever your wellbeing or safety requires it.
+            </Text>
+          </View>
+
+          <Pressable style={styles.button} onPress={handleAcceptImportantInfo}>
+            <Text style={styles.buttonText}>I understand and agree</Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -599,6 +712,29 @@ function StatusRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ImportantInfoBlock({ items, marker, title }: { items: string[]; marker: string; title: string }) {
+  return (
+    <View style={styles.infoBlock}>
+      <View style={styles.infoBlockHeader}>
+        <View style={styles.infoMarker}>
+          <Text style={styles.infoMarkerText}>{marker}</Text>
+        </View>
+        <Text style={styles.infoBlockTitle}>{title}</Text>
+      </View>
+      {items.map((item) => (
+        <View key={item} style={styles.infoBulletRow}>
+          <View style={styles.infoBullet} />
+          <Text style={styles.infoBulletText}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function getConfiguredUrl(value: string | undefined, fallback: string) {
+  return value?.trim() || fallback;
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -630,6 +766,92 @@ const styles = StyleSheet.create({
     color: '#4F5D58',
     fontSize: 16,
     lineHeight: 24,
+  },
+  importantLogo: {
+    alignSelf: 'center',
+    height: 108,
+    resizeMode: 'contain',
+    width: 108,
+  },
+  warningPanel: {
+    backgroundColor: '#FFF8E8',
+    borderColor: '#E0A52B',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  warningTitle: {
+    color: '#6F3517',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  warningText: {
+    color: '#6F3517',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  infoBlock: {
+    gap: 12,
+  },
+  infoBlockHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  infoMarker: {
+    alignItems: 'center',
+    backgroundColor: '#38635D',
+    borderRadius: 13,
+    height: 26,
+    justifyContent: 'center',
+    width: 26,
+  },
+  infoMarkerText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  infoBlockTitle: {
+    color: '#17211F',
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  infoBulletRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  infoBullet: {
+    backgroundColor: '#38635D',
+    borderRadius: 4,
+    height: 8,
+    marginTop: 7,
+    width: 8,
+  },
+  infoBulletText: {
+    color: '#4F5D58',
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  responsibilityPanel: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  responsibilityTitle: {
+    color: '#17211F',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  responsibilityText: {
+    color: '#4F5D58',
+    fontSize: 15,
+    lineHeight: 22,
   },
   loginLogo: {
     alignSelf: 'center',

@@ -5,7 +5,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,10 +12,11 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as SecureStore from 'expo-secure-store';
 import { Link } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
+import { deviceStorage } from '../src/lib/deviceStorage';
 import { supabase } from '../src/lib/supabase';
 
 const openAiApiKeyStorageKey = 'dallas.openai_api_key';
@@ -69,7 +69,7 @@ export default function ProfileScreen() {
       }
 
       const metadata = nextSession.user.user_metadata;
-      const savedOpenAiApiKey = await SecureStore.getItemAsync(openAiApiKeyStorageKey);
+      const savedOpenAiApiKey = await deviceStorage.getItem(openAiApiKeyStorageKey);
 
       if (!mounted) {
         return;
@@ -388,7 +388,7 @@ export default function ProfileScreen() {
     setSavingOpenAiKey(true);
     setMessage('');
 
-    await SecureStore.setItemAsync(openAiApiKeyStorageKey, trimmedKey);
+    await deviceStorage.setItem(openAiApiKeyStorageKey, trimmedKey);
 
     setSavingOpenAiKey(false);
     setOpenAiApiKey('');
@@ -400,7 +400,7 @@ export default function ProfileScreen() {
     setSavingOpenAiKey(true);
     setMessage('');
 
-    await SecureStore.deleteItemAsync(openAiApiKeyStorageKey);
+    await deviceStorage.removeItem(openAiApiKeyStorageKey);
 
     setSavingOpenAiKey(false);
     setOpenAiApiKey('');

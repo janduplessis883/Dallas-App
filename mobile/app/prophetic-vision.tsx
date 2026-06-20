@@ -5,7 +5,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +24,7 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { Link } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase';
@@ -143,7 +143,7 @@ export default function PropheticVisionScreen() {
 
   async function handleSave() {
     if (!session) {
-      setMessage('Sign in before saving your Profetic Vision.');
+      setMessage('Sign in before saving your Prophetic Vision.');
       return;
     }
 
@@ -175,7 +175,7 @@ export default function PropheticVisionScreen() {
     }
 
     setVisionId(data.id);
-    setMessage('Profetic Vision saved.');
+    setMessage('Prophetic Vision saved.');
   }
 
   async function handleAudioUpload() {
@@ -253,7 +253,7 @@ export default function PropheticVisionScreen() {
 
     setCoverImagePath(storagePath);
     setCoverImageUrl(getPublicCoverImageUrl(storagePath, Date.now()));
-    setMessage('Cover image uploaded. Save your Profetic Vision to keep it.');
+    setMessage('Cover image uploaded. Save your Prophetic Vision to keep it.');
   }
 
   async function handleStartRecording() {
@@ -265,7 +265,7 @@ export default function PropheticVisionScreen() {
     const permission = await requestRecordingPermissionsAsync();
 
     if (!permission.granted) {
-      setMessage('Microphone permission is needed to record your Profetic Vision.');
+      setMessage('Microphone permission is needed to record your Prophetic Vision.');
       return;
     }
 
@@ -364,12 +364,12 @@ export default function PropheticVisionScreen() {
     setAudioFileName(fileName);
     setAudioPath(storagePath);
     setAudioUri(uri);
-    setMessage('Audio attached. Save your Profetic Vision to keep it.');
+    setMessage('Audio attached. Save your Prophetic Vision to keep it.');
   }
 
   async function handleRewriteWithAi() {
     if (!shortVersion.trim() && !longVersion.trim()) {
-      setMessage('Add a short or long Profetic Vision before rewriting with AI.');
+      setMessage('Add a short or long Prophetic Vision before rewriting with AI.');
       return;
     }
 
@@ -409,7 +409,7 @@ export default function PropheticVisionScreen() {
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
           <ActivityIndicator color="#38635D" />
-          <Text style={styles.loadingText}>Loading Profetic Vision...</Text>
+          <Text style={styles.loadingText}>Loading Prophetic Vision...</Text>
         </View>
       </SafeAreaView>
     );
@@ -419,9 +419,9 @@ export default function PropheticVisionScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.container}>
-          <Text style={styles.eyebrow}>Profetic Vision</Text>
+          <Text style={styles.eyebrow}>Prophetic Vision</Text>
           <Text style={styles.title}>Sign in required</Text>
-          <Text style={styles.copy}>Your Profetic Vision is available after signing in.</Text>
+          <Text style={styles.copy}>Your Prophetic Vision is available after signing in.</Text>
           <Link href="/" asChild>
             <Pressable style={styles.button}>
               <Text style={styles.buttonText}>Back to sign in</Text>
@@ -444,29 +444,28 @@ export default function PropheticVisionScreen() {
                 imageStyle={styles.coverImageStyle}
               >
                 <View style={styles.coverOverlay}>
-                  <Text style={styles.coverEyebrow}>Profetic Vision</Text>
+                  <Text style={styles.coverEyebrow}>Prophetic Vision</Text>
                   <Text style={styles.coverTitle}>Speak the future clearly</Text>
                   <Text style={styles.coverCopy}>A visual anchor for the person you are becoming.</Text>
                 </View>
               </ImageBackground>
             ) : (
               <View style={styles.coverFallback}>
-                <Text style={styles.coverEyebrow}>Profetic Vision</Text>
+                <Text style={styles.coverEyebrow}>Prophetic Vision</Text>
                 <Text style={styles.coverTitle}>Speak the future clearly</Text>
                 <Text style={styles.coverCopy}>Add an inspirational cover image to give this page a feel.</Text>
               </View>
             )}
+            <Pressable
+              disabled={uploadingCover}
+              style={[styles.coverEditButton, uploadingCover && styles.disabledButton]}
+              onPress={handleCoverImageUpload}
+            >
+              <Text style={styles.coverEditButtonText}>
+                {uploadingCover ? '...' : coverImageUrl ? 'Edit' : 'Add'}
+              </Text>
+            </Pressable>
           </View>
-
-          <Pressable
-            disabled={uploadingCover}
-            style={[styles.secondaryButton, uploadingCover && styles.disabledButton]}
-            onPress={handleCoverImageUpload}
-          >
-            <Text style={styles.secondaryButtonText}>
-              {uploadingCover ? 'Uploading cover...' : coverImageUrl ? 'Change cover image' : 'Upload cover image'}
-            </Text>
-          </Pressable>
 
           <Text style={styles.copy}>Write a compact declaration, expand it into a full vision, and attach an audio reading.</Text>
 
@@ -525,7 +524,7 @@ export default function PropheticVisionScreen() {
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Audio reading</Text>
             <Text style={styles.mutedText}>
-              {audioFileName ? `Uploaded: ${audioFileName}` : 'Upload an audio file of someone reading the Profetic Vision.'}
+              {audioFileName ? `Uploaded: ${audioFileName}` : 'Upload an audio file of someone reading the Prophetic Vision.'}
             </Text>
             <View style={styles.playerPanel}>
               <View style={styles.playerTopRow}>
@@ -605,7 +604,7 @@ export default function PropheticVisionScreen() {
             style={[styles.button, saving && styles.disabledButton]}
             onPress={handleSave}
           >
-            <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save Profetic Vision'}</Text>
+            <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save Prophetic Vision'}</Text>
           </Pressable>
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -794,6 +793,22 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     minHeight: 260,
     overflow: 'hidden',
+  },
+  coverEditButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(247, 243, 234, 0.9)',
+    borderRadius: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    position: 'absolute',
+    right: 12,
+    top: 12,
+  },
+  coverEditButtonText: {
+    color: '#38635D',
+    fontSize: 13,
+    fontWeight: '900',
   },
   coverImage: {
     flex: 1,

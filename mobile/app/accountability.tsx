@@ -5,7 +5,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import { Link } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase';
@@ -370,15 +370,17 @@ export default function AccountabilityScreen() {
   }
 
   async function openSms(phoneNumber: string, body: string) {
-    const trimmedMobile = phoneNumber.trim();
+    const trimmedMobile = normalizePhoneNumber(phoneNumber);
 
     if (!isInternationalPhoneNumber(trimmedMobile)) {
       setMessage('Add a mobile number in international format before sending SMS.');
       return false;
     }
 
-    const separator = Platform.OS === 'ios' ? '&' : '?';
-    const url = `sms:${trimmedMobile}${separator}body=${encodeURIComponent(body)}`;
+    const url =
+      Platform.OS === 'ios'
+        ? `sms:/open?addresses=${encodeURIComponent(trimmedMobile)}&body=${encodeURIComponent(body)}`
+        : `sms:${trimmedMobile}?body=${encodeURIComponent(body)}`;
     const canOpen = await Linking.canOpenURL(url);
 
     if (!canOpen) {
@@ -445,27 +447,48 @@ export default function AccountabilityScreen() {
 
             {partners.length ? (
               <View style={styles.partnerList}>
-                {partners.map((partner) => (
-                  <Pressable
-                    key={partner.id}
-                    style={[styles.partnerCard, partner.id === selectedPartnerId && styles.activePartnerCard]}
-                    onPress={() => handleSelectPartner(partner)}
-                  >
-                    <View style={styles.smallAvatar}>
-                      {partner.avatar_path ? (
-                        <Image source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }} style={styles.smallAvatarImage} />
-                      ) : (
-                        <Text style={styles.smallAvatarInitial}>{getInitial(partner.name)}</Text>
-                      )}
+                {partners.map((partner) => {
+                  const selected = partner.id === selectedPartnerId;
+
+                  return (
+                    <View key={partner.id} style={[styles.partnerItem, selected && styles.activePartnerItem]}>
+                      <Pressable style={styles.partnerCard} onPress={() => handleSelectPartner(partner)}>
+                        <View style={styles.smallAvatar}>
+                          {partner.avatar_path ? (
+                            <Image
+                              source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }}
+                              style={styles.smallAvatarImage}
+                            />
+                          ) : (
+                            <Text style={styles.smallAvatarInitial}>{getInitial(partner.name)}</Text>
+                          )}
+                        </View>
+                        <View style={styles.partnerCardCopy}>
+                          <Text style={styles.partnerName}>{partner.name}</Text>
+                          <Text style={styles.partnerMeta}>
+                            {[partner.location, getLocalTime(partner.time_zone)].filter(Boolean).join(' - ')}
+                          </Text>
+                        </View>
+                      </Pressable>
+
+                      {selected ? (
+                        <View style={styles.inlineActions}>
+                          <View style={styles.inlineActionRow}>
+                            <Pressable style={styles.inlinePrimaryButton} onPress={handleInvitePartner}>
+                              <Text style={styles.inlinePrimaryButtonText}>SMS invite</Text>
+                            </Pressable>
+                            <Pressable style={styles.inlineSecondaryButton} onPress={handleSendCheckIn}>
+                              <Text style={styles.inlineSecondaryButtonText}>Notify</Text>
+                            </Pressable>
+                          </View>
+                          <Text style={styles.inlineStatusText}>
+                            Invited: {formatDateTime(partner.invited_at)} · Last message: {formatDateTime(partner.last_notified_at)}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
-                    <View style={styles.partnerCardCopy}>
-                      <Text style={styles.partnerName}>{partner.name}</Text>
-                      <Text style={styles.partnerMeta}>
-                        {[partner.location, getLocalTime(partner.time_zone)].filter(Boolean).join(' - ')}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ))}
+                  );
+                })}
               </View>
             ) : (
               <Text style={styles.mutedText}>No partners yet. Add your first support contact below.</Text>
@@ -567,27 +590,6 @@ export default function AccountabilityScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Actions</Text>
-            <Text style={styles.mutedText}>
-              Invites and check-ins open your Messages app. App-to-app partner notifications can be added later when
-              partners have their own Dallas account and push token.
-            </Text>
-            <Pressable style={styles.button} onPress={handleInvitePartner}>
-              <Text style={styles.buttonText}>Invite via SMS</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={handleSendCheckIn}>
-              <Text style={styles.secondaryButtonText}>Send check-in message</Text>
-            </Pressable>
-            {selectedPartner ? (
-              <View style={styles.statusRows}>
-                <InfoRow label="Invited" value={formatDateTime(selectedPartner.invited_at)} />
-                <InfoRow label="Last message" value={formatDateTime(selectedPartner.last_notified_at)} />
-                <InfoRow label="Scheduled check-in" value={formatDateTime(selectedPartner.check_in_at)} />
-              </View>
-            ) : null}
-          </View>
-
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
           <Link href="/" asChild>
@@ -629,15 +631,6 @@ function Field({
         textAlignVertical={multiline ? 'top' : 'center'}
         value={value}
       />
-    </View>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
 }
@@ -730,6 +723,10 @@ function isInternationalPhoneNumber(value: string) {
   return /^\+[1-9]\d{7,14}$/.test(value);
 }
 
+function normalizePhoneNumber(value: string) {
+  return value.trim().replace(/[^\d+]/g, '');
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -796,18 +793,21 @@ const styles = StyleSheet.create({
   partnerList: {
     gap: 8,
   },
-  partnerCard: {
-    alignItems: 'center',
+  partnerItem: {
     backgroundColor: '#F9F7F0',
     borderColor: '#DED7C9',
     borderRadius: 8,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  activePartnerItem: {
+    borderColor: '#38635D',
+  },
+  partnerCard: {
+    alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
     padding: 10,
-  },
-  activePartnerCard: {
-    borderColor: '#38635D',
   },
   smallAvatar: {
     alignItems: 'center',
@@ -840,6 +840,52 @@ const styles = StyleSheet.create({
     color: '#697570',
     fontSize: 13,
     fontWeight: '700',
+  },
+  inlineActions: {
+    borderTopColor: '#ECE5D8',
+    borderTopWidth: 1,
+    gap: 8,
+    padding: 10,
+    paddingTop: 9,
+  },
+  inlineActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  inlinePrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#38635D',
+    borderRadius: 8,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 10,
+  },
+  inlinePrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  inlineSecondaryButton: {
+    alignItems: 'center',
+    borderColor: '#38635D',
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 10,
+  },
+  inlineSecondaryButtonText: {
+    color: '#38635D',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  inlineStatusText: {
+    color: '#697570',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
   },
   avatarRow: {
     alignItems: 'center',
@@ -919,26 +965,6 @@ const styles = StyleSheet.create({
   twoColumn: {
     flexDirection: 'row',
     gap: 10,
-  },
-  statusRows: {
-    borderTopColor: '#ECE5D8',
-    borderTopWidth: 1,
-  },
-  infoRow: {
-    borderBottomColor: '#ECE5D8',
-    borderBottomWidth: 1,
-    gap: 4,
-    paddingVertical: 10,
-  },
-  infoLabel: {
-    color: '#697570',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  infoValue: {
-    color: '#17211F',
-    fontSize: 15,
-    fontWeight: '800',
   },
   button: {
     alignItems: 'center',
