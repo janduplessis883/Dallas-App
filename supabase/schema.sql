@@ -72,6 +72,7 @@ create table if not exists public.accountability_check_in_threads (
   partner_id uuid not null references public.accountability_partners(id) on delete cascade,
   planned_check_in_id uuid references public.accountability_planned_check_ins(id) on delete set null,
   partner_token uuid not null default gen_random_uuid() unique,
+  user_display_name text,
   status text not null default 'open',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

@@ -36,6 +36,10 @@ type AccountabilityPartner = {
   time_zone: string | null;
 };
 
+type AccountabilityProfile = {
+  display_name: string | null;
+};
+
 type AccountabilityCheckIn = {
   completed_at: string;
   id: string;
@@ -113,6 +117,7 @@ export default function AccountabilityScreen() {
   const [saving, setSaving] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
   const [session, setSession] = useState<Session | null>(null);
+  const [userDisplayName, setUserDisplayName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const selectedPartner = useMemo(
@@ -142,7 +147,10 @@ export default function AccountabilityScreen() {
         return;
       }
 
-      await loadPartners(nextSession.user.id, mounted);
+      await Promise.all([
+        loadPartners(nextSession.user.id, mounted),
+        loadUserDisplayName(nextSession.user.id, mounted, nextSession.user.user_metadata, nextSession.user.email),
+      ]);
       setLoading(false);
     }
 
@@ -172,6 +180,30 @@ export default function AccountabilityScreen() {
     }
 
     setPartners(data ?? []);
+  }
+
+  async function loadUserDisplayName(
+    userId: string,
+    mounted = true,
+    metadata: Record<string, unknown> = {},
+    email: string | undefined = undefined,
+  ) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('display_name')
+      .eq('id', userId)
+      .maybeSingle<AccountabilityProfile>();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (error) {
+      setUserDisplayName(getFallbackUserDisplayName(metadata, email));
+      return;
+    }
+
+    setUserDisplayName(data?.display_name || getFallbackUserDisplayName(metadata, email));
   }
 
   async function loadCheckIns(partnerId: string, mounted = true, userId = session?.user.id) {
@@ -493,6 +525,7 @@ export default function AccountabilityScreen() {
       .insert({
         partner_id: partnerId,
         planned_check_in_id: plannedCheckInId,
+        user_display_name: userDisplayName || session.user.email || 'Dallas user',
         user_id: session.user.id,
       })
       .select('id, partner_token')
@@ -1294,6 +1327,14 @@ function getLocalTime(timeZone: string | null) {
   } catch {
     return '';
   }
+}
+
+function getFallbackUserDisplayName(metadata: Record<string, unknown>, email: string | undefined) {
+  return getMetadataValue(metadata.preferred_name) || email || 'Dallas user';
+}
+
+function getMetadataValue(value: unknown) {
+  return typeof value === 'string' ? value : '';
 }
 
 function getPartnerName(partnerId: string, partners: AccountabilityPartner[], fallbackName: string) {

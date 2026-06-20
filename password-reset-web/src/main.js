@@ -158,9 +158,11 @@ async function initializeCheckInReplyPage() {
     return;
   }
 
-  pageTitle.textContent = `Reply to ${data.partnerName}`;
+  const userDisplayName = data.userDisplayName ?? 'Dallas user';
+
+  pageTitle.textContent = `Reply to ${userDisplayName}`;
   pageCopy.textContent = 'Send a short supportive reply. Dallas will show it in the accountability history.';
-  renderThreadMessages(data.messages ?? []);
+  renderThreadMessages(data.messages ?? [], userDisplayName);
   form.hidden = false;
 }
 
@@ -192,7 +194,7 @@ async function submitCheckInReply() {
   await initializeCheckInReplyPage();
 }
 
-function renderThreadMessages(messages) {
+function renderThreadMessages(messages, userDisplayName = 'Dallas user') {
   if (!threadMessages) {
     return;
   }
@@ -209,7 +211,7 @@ function renderThreadMessages(messages) {
 
     const sender = document.createElement('p');
     sender.className = 'thread-message-sender';
-    sender.textContent = threadMessage.sender_type === 'partner' ? 'Partner' : 'Dallas user';
+    sender.textContent = threadMessage.sender_type === 'partner' ? 'Partner' : userDisplayName;
 
     const body = document.createElement('p');
     body.className = 'thread-message-body';

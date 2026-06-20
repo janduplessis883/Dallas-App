@@ -78,10 +78,16 @@ async function getThread(adminClient: ReturnType<typeof createClient>, token: st
     return jsonResponse({ error: messagesError.message }, 500);
   }
 
+  const userDisplayName = await resolveUserDisplayName(
+    adminClient,
+    thread.user_id,
+    thread.user_display_name,
+  );
+
   return jsonResponse({
     messages: messages ?? [],
-    partnerName: getPartnerName(thread.partner),
     status: thread.status,
+    userDisplayName,
   });
 }
 
@@ -126,7 +132,7 @@ async function postReply(
 async function loadThread(adminClient: ReturnType<typeof createClient>, token: string) {
   const { data, error } = await adminClient
     .from('accountability_check_in_threads')
-    .select('id, partner_id, status, user_id, partner:accountability_partners(name)')
+    .select('id, partner_id, status, user_display_name, user_id')
     .eq('partner_token', token)
     .maybeSingle();
 
@@ -136,19 +142,31 @@ async function loadThread(adminClient: ReturnType<typeof createClient>, token: s
 
   return data as {
     id: string;
-    partner: { name: string } | Array<{ name: string }>;
     partner_id: string;
     status: string;
+    user_display_name: string | null;
     user_id: string;
   };
 }
 
-function getPartnerName(value: { name: string } | Array<{ name: string }>) {
-  if (Array.isArray(value)) {
-    return value[0]?.name ?? 'your accountability partner';
+async function resolveUserDisplayName(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+  threadDisplayName: string | null,
+) {
+  if (threadDisplayName?.trim()) {
+    return threadDisplayName.trim();
   }
 
-  return value.name;
+  const { data } = await adminClient
+    .from('profiles')
+    .select('display_name')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const profileDisplayName = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
+
+  return profileDisplayName || 'the Dallas user';
 }
 
 function jsonResponse(body: unknown, status = 200) {

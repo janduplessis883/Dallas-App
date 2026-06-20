@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
 import { deviceStorage } from '../src/lib/deviceStorage';
-import { registerForPushNotificationsAsync } from '../src/lib/notifications';
+import { registerAndSavePushTokenAsync } from '../src/lib/notifications';
 import { isSupabaseConfigured, supabase } from '../src/lib/supabase';
 
 const loginLogo = require('../assets/login-logo.png');
@@ -340,10 +340,15 @@ export default function HomeScreen() {
   }
 
   async function handleNotificationCheck() {
+    if (!session) {
+      setPushStatus('Sign in before enabling notifications.');
+      return;
+    }
+
     setPushStatus('Requesting permission...');
 
     try {
-      const token = await registerForPushNotificationsAsync();
+      const token = await registerAndSavePushTokenAsync(session.user.id);
       setPushStatus(token ? 'Push notifications ready' : 'Permission not granted');
     } catch (error) {
       setPushStatus(error instanceof Error ? error.message : 'Notification setup failed');
