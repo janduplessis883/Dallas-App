@@ -46,6 +46,48 @@ create table if not exists public.accountability_partners (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.accountability_check_ins (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  partner_id uuid not null references public.accountability_partners(id) on delete cascade,
+  completed_at timestamptz not null default now(),
+  note text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.accountability_planned_check_ins (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  partner_id uuid not null references public.accountability_partners(id) on delete cascade,
+  scheduled_at timestamptz not null,
+  notification_id text,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.accountability_check_in_threads (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  partner_id uuid not null references public.accountability_partners(id) on delete cascade,
+  planned_check_in_id uuid references public.accountability_planned_check_ins(id) on delete set null,
+  partner_token uuid not null default gen_random_uuid() unique,
+  status text not null default 'open',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.accountability_check_in_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  partner_id uuid not null references public.accountability_partners(id) on delete cascade,
+  thread_id uuid not null references public.accountability_check_in_threads(id) on delete cascade,
+  sender_type text not null check (sender_type in ('user', 'partner')),
+  body text not null,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.push_tokens (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -128,6 +170,9 @@ alter table public.accountability_partners
   add column if not exists last_notified_at timestamptz,
   add column if not exists updated_at timestamptz not null default now();
 
+alter table public.accountability_planned_check_ins
+  add column if not exists notification_id text;
+
 alter table public.prophetic_visions
   add column if not exists short_version text not null default '',
   add column if not exists long_version text not null default '',
@@ -181,6 +226,30 @@ create index if not exists recovery_plans_user_id_idx
 create index if not exists accountability_partners_user_id_idx
   on public.accountability_partners (user_id);
 
+create index if not exists accountability_check_ins_user_id_completed_at_idx
+  on public.accountability_check_ins (user_id, completed_at desc);
+
+create index if not exists accountability_check_ins_partner_id_completed_at_idx
+  on public.accountability_check_ins (partner_id, completed_at desc);
+
+create index if not exists accountability_planned_check_ins_user_id_scheduled_at_idx
+  on public.accountability_planned_check_ins (user_id, scheduled_at asc);
+
+create index if not exists accountability_planned_check_ins_partner_id_scheduled_at_idx
+  on public.accountability_planned_check_ins (partner_id, scheduled_at asc);
+
+create index if not exists accountability_check_in_threads_user_id_updated_at_idx
+  on public.accountability_check_in_threads (user_id, updated_at desc);
+
+create index if not exists accountability_check_in_threads_partner_token_idx
+  on public.accountability_check_in_threads (partner_token);
+
+create index if not exists accountability_check_in_messages_thread_id_created_at_idx
+  on public.accountability_check_in_messages (thread_id, created_at asc);
+
+create index if not exists accountability_check_in_messages_user_id_created_at_idx
+  on public.accountability_check_in_messages (user_id, created_at desc);
+
 create index if not exists push_tokens_user_id_idx
   on public.push_tokens (user_id);
 
@@ -193,6 +262,10 @@ create index if not exists event_plans_user_id_updated_at_idx
 alter table public.profiles enable row level security;
 alter table public.recovery_plans enable row level security;
 alter table public.accountability_partners enable row level security;
+alter table public.accountability_check_ins enable row level security;
+alter table public.accountability_planned_check_ins enable row level security;
+alter table public.accountability_check_in_threads enable row level security;
+alter table public.accountability_check_in_messages enable row level security;
 alter table public.push_tokens enable row level security;
 alter table public.prophetic_visions enable row level security;
 alter table public.event_plans enable row level security;
@@ -214,6 +287,34 @@ create policy "Users can manage their own recovery plans"
 drop policy if exists "Users can manage their own accountability partners" on public.accountability_partners;
 create policy "Users can manage their own accountability partners"
   on public.accountability_partners
+  for all
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own accountability check-ins" on public.accountability_check_ins;
+create policy "Users can manage their own accountability check-ins"
+  on public.accountability_check_ins
+  for all
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own planned accountability check-ins" on public.accountability_planned_check_ins;
+create policy "Users can manage their own planned accountability check-ins"
+  on public.accountability_planned_check_ins
+  for all
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own check-in threads" on public.accountability_check_in_threads;
+create policy "Users can manage their own check-in threads"
+  on public.accountability_check_in_threads
+  for all
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can manage their own check-in messages" on public.accountability_check_in_messages;
+create policy "Users can manage their own check-in messages"
+  on public.accountability_check_in_messages
   for all
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
@@ -289,6 +390,16 @@ create trigger set_recovery_plans_updated_at
 drop trigger if exists set_accountability_partners_updated_at on public.accountability_partners;
 create trigger set_accountability_partners_updated_at
   before update on public.accountability_partners
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists set_accountability_planned_check_ins_updated_at on public.accountability_planned_check_ins;
+create trigger set_accountability_planned_check_ins_updated_at
+  before update on public.accountability_planned_check_ins
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists set_accountability_check_in_threads_updated_at on public.accountability_check_in_threads;
+create trigger set_accountability_check_in_threads_updated_at
+  before update on public.accountability_check_in_threads
   for each row execute function public.set_updated_at();
 
 drop trigger if exists set_prophetic_visions_updated_at on public.prophetic_visions;

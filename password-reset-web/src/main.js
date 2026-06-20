@@ -11,18 +11,27 @@ const pageTitle = document.querySelector('#page-title');
 const submitButton = document.querySelector('#submit-button');
 const passwordInput = document.querySelector('#password');
 const confirmPasswordInput = document.querySelector('#confirm-password');
+const replyMessageInput = document.querySelector('#reply-message');
+const threadMessages = document.querySelector('#thread-messages');
 
 if (!supabaseUrl || !supabaseAnonKey) {
   showMessage('This account page is not configured. Missing Supabase environment variables.', true);
-  form.hidden = true;
+  if (form) {
+    form.hidden = true;
+  }
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-initializeAuthLinkPage();
+initializePage();
 
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
+
+  if (replyMessageInput) {
+    await submitCheckInReply();
+    return;
+  }
 
   const password = passwordInput.value;
   const confirmPassword = confirmPasswordInput.value;
@@ -55,6 +64,17 @@ form?.addEventListener('submit', async (event) => {
   confirmPasswordInput.value = '';
   showMessage('Password updated. You can now return to the Dallas app.');
 });
+
+async function initializePage() {
+  const pathname = normalizePathname(window.location.pathname);
+
+  if (pathname === '/check-in-reply/') {
+    await initializeCheckInReplyPage();
+    return;
+  }
+
+  await initializeAuthLinkPage();
+}
 
 async function initializeAuthLinkPage() {
   const params = getAuthLinkParams();
@@ -111,6 +131,114 @@ async function initializeAuthLinkPage() {
   }
 
   showMessage('Recovery link verified. Enter your new password.');
+}
+
+async function initializeCheckInReplyPage() {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return;
+  }
+
+  const token = getAuthLinkParams().get('token');
+
+  if (!token) {
+    showMessage('This check-in link is missing its reply token.', true);
+    if (form) {
+      form.hidden = true;
+    }
+    return;
+  }
+
+  const { data, error } = await callCheckInReplyFunction(token);
+
+  if (error) {
+    showMessage(error.message, true);
+    if (form) {
+      form.hidden = true;
+    }
+    return;
+  }
+
+  pageTitle.textContent = `Reply to ${data.partnerName}`;
+  pageCopy.textContent = 'Send a short supportive reply. Dallas will show it in the accountability history.';
+  renderThreadMessages(data.messages ?? []);
+  form.hidden = false;
+}
+
+async function submitCheckInReply() {
+  const token = getAuthLinkParams().get('token');
+  const reply = replyMessageInput.value.trim();
+
+  if (!reply) {
+    showMessage('Write a reply before sending.', true);
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
+  showMessage('');
+
+  const { error } = await callCheckInReplyFunction(token, { message: reply });
+
+  submitButton.disabled = false;
+  submitButton.textContent = 'Send reply';
+
+  if (error) {
+    showMessage(error.message, true);
+    return;
+  }
+
+  replyMessageInput.value = '';
+  showMessage('Reply sent. You can close this page.');
+  await initializeCheckInReplyPage();
+}
+
+function renderThreadMessages(messages) {
+  if (!threadMessages) {
+    return;
+  }
+
+  threadMessages.innerHTML = '';
+
+  if (!messages.length) {
+    return;
+  }
+
+  messages.forEach((threadMessage) => {
+    const item = document.createElement('article');
+    item.className = 'thread-message';
+
+    const sender = document.createElement('p');
+    sender.className = 'thread-message-sender';
+    sender.textContent = threadMessage.sender_type === 'partner' ? 'Partner' : 'Dallas user';
+
+    const body = document.createElement('p');
+    body.className = 'thread-message-body';
+    body.textContent = threadMessage.body;
+
+    item.append(sender, body);
+    threadMessages.append(item);
+  });
+}
+
+async function callCheckInReplyFunction(token, body) {
+  const response = await fetch(`${supabaseUrl}/functions/v1/check-in-reply?token=${encodeURIComponent(token)}`, {
+    body: body ? JSON.stringify(body) : undefined,
+    headers: {
+      apikey: supabaseAnonKey,
+      'Content-Type': 'application/json',
+    },
+    method: body ? 'POST' : 'GET',
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return {
+      data: null,
+      error: new Error(data.error ?? 'Check-in reply failed.'),
+    };
+  }
+
+  return { data, error: null };
 }
 
 function getAuthLinkParams() {

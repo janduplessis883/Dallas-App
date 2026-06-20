@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -12,7 +12,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Link, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
@@ -37,37 +38,50 @@ const homeLinks = [
   {
     description: 'Goals, triggers, coping actions, and support resources.',
     href: '/recovery-plan',
+    icon: 'flag',
     label: 'Recovery plan',
   },
   {
     description: 'Short and long vision, audio reading, and AI rewrite.',
     href: '/prophetic-vision',
+    icon: 'auto-awesome',
     label: 'Prophetic Vision',
   },
   {
     description: 'Guided reflection and structured support prompts.',
     href: '/ai-support',
+    icon: 'psychology',
     label: 'AI support',
   },
   {
     description: 'Partners, check-ins, and shared commitments.',
     href: '/accountability',
+    icon: 'groups',
     label: 'Accountability',
   },
   {
     description: 'Prepare before, stay anchored during, and debrief after events.',
     href: '/event-planning',
+    icon: 'event-note',
     label: 'Event planning',
   },
   {
     description: 'Notification schedules and recovery prompts.',
     href: '/reminders',
+    icon: 'notifications',
     label: 'Reminders',
   },
   {
     description: 'Preferred name, phone number, and account settings.',
     href: '/profile',
+    icon: 'person',
     label: 'Profile',
+  },
+  {
+    description: 'API key, notifications, safety information, sign out, and app details.',
+    href: '/settings',
+    icon: 'settings',
+    label: 'Settings',
   },
 ] as const;
 
@@ -169,6 +183,37 @@ export default function HomeScreen() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      supabase.auth.getSession().then(({ data }) => {
+        if (!active) {
+          return;
+        }
+
+        setSession(data.session);
+        setSessionLoading(false);
+
+        if (!data.session) {
+          setAvatarFailed(false);
+          setProfile(null);
+          return;
+        }
+
+        loadHomeProfile(data.session.user.id).then((nextProfile) => {
+          if (active) {
+            setProfile(nextProfile);
+          }
+        });
+      });
+
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   async function handleAcceptImportantInfo() {
     try {
@@ -459,7 +504,7 @@ export default function HomeScreen() {
                 <Link key={item.href} href={item.href} asChild>
                   <Pressable style={styles.homeLink}>
                     <View style={styles.homeLinkIcon}>
-                      <Text style={styles.homeLinkIconText}>{item.label.charAt(0)}</Text>
+                      <MaterialIcons color="#38635D" name={item.icon} size={21} />
                     </View>
                     <View style={styles.homeLinkCopy}>
                       <Text style={styles.homeLinkTitle}>{item.label}</Text>
@@ -965,11 +1010,6 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     width: 36,
-  },
-  homeLinkIconText: {
-    color: '#38635D',
-    fontSize: 15,
-    fontWeight: '900',
   },
   homeLinkCopy: {
     flex: 1,

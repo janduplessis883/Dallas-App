@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dallas Check-in Reply</title>
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <main class="screen">
+      <section class="panel">
+        <p class="eyebrow">Dallas</p>
+        <h1 id="page-title">Check-in reply</h1>
+        <p id="page-copy" class="copy">Reply to this accountability check-in.</p>
+
+        <form id="reset-form" class="form" hidden>
+          <label>
+            <span>Message</span>
+            <textarea
+              id="reply-message"
+              maxlength="1000"
+              placeholder="Write a short supportive reply..."
+              required
+              rows="6"
+            ></textarea>
+          </label>
+
+          <button id="submit-button" type="submit">Send reply</button>
+        </form>
+
+        <div id="thread-messages" class="thread-messages"></div>
+        <p id="message" class="message" role="status"></p>
+      </section>
+    </main>
+  </body>
+</html>

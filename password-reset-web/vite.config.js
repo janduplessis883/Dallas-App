@@ -7,6 +7,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         accountCreated: resolve(__dirname, 'account-created/index.html'),
+        checkInReply: resolve(__dirname, 'check-in-reply/index.html'),
         resetPassword: resolve(__dirname, 'reset-password/index.html'),
       },
     },

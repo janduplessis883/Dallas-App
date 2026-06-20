@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -12,12 +13,12 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
 import { deviceStorage } from '../src/lib/deviceStorage';
-import { supabase } from '../src/lib/supabase';
+import { clearSupabaseLocalSession, supabase } from '../src/lib/supabase';
 
 const openAiApiKeyStorageKey = 'dallas.openai_api_key';
 
@@ -29,8 +30,10 @@ type ProfileRow = {
 };
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const [avatarUrl, setAvatarUrl] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [homeCoverImageFailed, setHomeCoverImageFailed] = useState(false);
   const [homeCoverImageUrl, setHomeCoverImageUrl] = useState('');
@@ -38,10 +41,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [openAiApiKey, setOpenAiApiKey] = useState('');
-  const [openAiKeySaved, setOpenAiKeySaved] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [savingOpenAiKey, setSavingOpenAiKey] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [savingHomeCoverImage, setSavingHomeCoverImage] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
@@ -69,13 +69,6 @@ export default function ProfileScreen() {
       }
 
       const metadata = nextSession.user.user_metadata;
-      const savedOpenAiApiKey = await deviceStorage.getItem(openAiApiKeyStorageKey);
-
-      if (!mounted) {
-        return;
-      }
-
-      setOpenAiKeySaved(Boolean(savedOpenAiApiKey));
       setDisplayName(getMetadataValue(metadata.preferred_name));
       setPhoneNumber(getMetadataValue(metadata.phone_number));
       setAvatarUrl(getMetadataValue(metadata.avatar_url));
@@ -377,35 +370,53 @@ export default function ProfileScreen() {
     setMessage('Password updated.');
   }
 
-  async function handleSaveOpenAiKey() {
-    const trimmedKey = openAiApiKey.trim();
-
-    if (!trimmedKey.startsWith('sk-')) {
-      setMessage('Enter a valid OpenAI API key that starts with sk-.');
+  function handleDeleteAccountPress() {
+    if (deletingAccount) {
       return;
     }
 
-    setSavingOpenAiKey(true);
-    setMessage('');
-
-    await deviceStorage.setItem(openAiApiKeyStorageKey, trimmedKey);
-
-    setSavingOpenAiKey(false);
-    setOpenAiApiKey('');
-    setOpenAiKeySaved(true);
-    setMessage('OpenAI API key saved on this device.');
+    Alert.alert(
+      'Delete account?',
+      'This permanently deletes your Dallas account and all app information. Your profile, recovery plans, accountability partners, events, reminders, images, audio, and AI settings cannot be recovered.',
+      [
+        {
+          style: 'cancel',
+          text: 'Cancel',
+        },
+        {
+          onPress: handleConfirmDeleteAccount,
+          style: 'destructive',
+          text: 'Delete account',
+        },
+      ],
+    );
   }
 
-  async function handleClearOpenAiKey() {
-    setSavingOpenAiKey(true);
+  async function handleConfirmDeleteAccount() {
+    if (!session) {
+      setMessage('Sign in before deleting your account.');
+      return;
+    }
+
+    setDeletingAccount(true);
     setMessage('');
 
-    await deviceStorage.removeItem(openAiApiKeyStorageKey);
+    const { error } = await supabase.functions.invoke('delete-account', {
+      method: 'POST',
+    });
 
-    setSavingOpenAiKey(false);
-    setOpenAiApiKey('');
-    setOpenAiKeySaved(false);
-    setMessage('OpenAI API key removed from this device.');
+    if (error) {
+      setDeletingAccount(false);
+      setMessage(error.message);
+      return;
+    }
+
+    await deviceStorage.removeItem(openAiApiKeyStorageKey);
+    await clearSupabaseLocalSession();
+
+    setDeletingAccount(false);
+    setSession(null);
+    router.replace('/');
   }
 
   if (loading) {
@@ -603,46 +614,21 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>AI settings</Text>
+          <View style={[styles.panel, styles.dangerPanel]}>
+            <Text style={styles.dangerTitle}>Delete account</Text>
             <Text style={styles.mutedText}>
-              Add your OpenAI API key for AI features that run from this app. The key is stored only on this device.
+              Permanently delete your account and all Dallas app information. This cannot be recovered.
             </Text>
-            <InfoRow label="OpenAI API key" value={openAiKeySaved ? 'Saved on this device' : 'Not saved'} />
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>OpenAI API key</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setOpenAiApiKey}
-                placeholder="sk-..."
-                placeholderTextColor="#8A948F"
-                secureTextEntry
-                style={styles.input}
-                value={openAiApiKey}
-              />
-            </View>
 
             <Pressable
-              disabled={savingOpenAiKey}
-              style={[styles.button, savingOpenAiKey && styles.disabledButton]}
-              onPress={handleSaveOpenAiKey}
+              disabled={deletingAccount}
+              style={[styles.dangerButton, deletingAccount && styles.disabledButton]}
+              onPress={handleDeleteAccountPress}
             >
-              <Text style={styles.buttonText}>
-                {savingOpenAiKey ? 'Saving...' : openAiKeySaved ? 'Replace API key' : 'Save API key'}
+              <Text style={styles.dangerButtonText}>
+                {deletingAccount ? 'Deleting...' : 'Delete account'}
               </Text>
             </Pressable>
-
-            {openAiKeySaved ? (
-              <Pressable
-                disabled={savingOpenAiKey}
-                style={[styles.secondaryButton, savingOpenAiKey && styles.disabledButton]}
-                onPress={handleClearOpenAiKey}
-              >
-                <Text style={styles.secondaryButtonText}>Remove API key</Text>
-              </Pressable>
-            ) : null}
           </View>
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -770,6 +756,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  dangerPanel: {
+    borderColor: '#D9A6A1',
+  },
+  dangerTitle: {
+    color: '#8F1D18',
+    fontSize: 16,
+    fontWeight: '800',
+  },
   avatarRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -885,6 +879,19 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: '#38635D',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  dangerButton: {
+    alignItems: 'center',
+    backgroundColor: '#B3261E',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 50,
+    paddingHorizontal: 18,
+  },
+  dangerButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
   },

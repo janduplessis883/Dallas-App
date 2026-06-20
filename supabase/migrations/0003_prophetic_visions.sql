@@ -12,6 +12,7 @@ create table if not exists public.prophetic_visions (
 
 alter table public.prophetic_visions enable row level security;
 
+drop policy if exists "Users can manage their own prophetic vision" on public.prophetic_visions;
 create policy "Users can manage their own prophetic vision"
   on public.prophetic_visions
   for all
@@ -22,6 +23,7 @@ insert into storage.buckets (id, name, public)
 values ('prophetic-vision-audio', 'prophetic-vision-audio', false)
 on conflict (id) do update set public = excluded.public;
 
+drop policy if exists "Users can read their own prophetic vision audio" on storage.objects;
 create policy "Users can read their own prophetic vision audio"
   on storage.objects
   for select
@@ -30,6 +32,7 @@ create policy "Users can read their own prophetic vision audio"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
+drop policy if exists "Users can upload their own prophetic vision audio" on storage.objects;
 create policy "Users can upload their own prophetic vision audio"
   on storage.objects
   for insert
@@ -38,6 +41,7 @@ create policy "Users can upload their own prophetic vision audio"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
+drop policy if exists "Users can update their own prophetic vision audio" on storage.objects;
 create policy "Users can update their own prophetic vision audio"
   on storage.objects
   for update
@@ -50,6 +54,7 @@ create policy "Users can update their own prophetic vision audio"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
+drop policy if exists "Users can delete their own prophetic vision audio" on storage.objects;
 create policy "Users can delete their own prophetic vision audio"
   on storage.objects
   for delete
@@ -62,11 +67,13 @@ insert into storage.buckets (id, name, public)
 values ('prophetic-vision-covers', 'prophetic-vision-covers', true)
 on conflict (id) do update set public = excluded.public;
 
+drop policy if exists "Prophetic Vision covers are publicly readable" on storage.objects;
 create policy "Prophetic Vision covers are publicly readable"
   on storage.objects
   for select
   using (bucket_id = 'prophetic-vision-covers');
 
+drop policy if exists "Users can upload their own Prophetic Vision cover" on storage.objects;
 create policy "Users can upload their own Prophetic Vision cover"
   on storage.objects
   for insert
@@ -75,6 +82,7 @@ create policy "Users can upload their own Prophetic Vision cover"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
+drop policy if exists "Users can update their own Prophetic Vision cover" on storage.objects;
 create policy "Users can update their own Prophetic Vision cover"
   on storage.objects
   for update
@@ -87,6 +95,7 @@ create policy "Users can update their own Prophetic Vision cover"
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
 
+drop policy if exists "Users can delete their own Prophetic Vision cover" on storage.objects;
 create policy "Users can delete their own Prophetic Vision cover"
   on storage.objects
   for delete

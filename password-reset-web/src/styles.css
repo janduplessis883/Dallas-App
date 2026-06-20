@@ -86,7 +86,25 @@ input {
   padding: 0 13px;
 }
 
+textarea {
+  background: #f9f7f0;
+  border: 1px solid #ded7c9;
+  border-radius: 8px;
+  color: #17211f;
+  font: inherit;
+  line-height: 22px;
+  min-height: 132px;
+  outline: none;
+  padding: 13px;
+  resize: vertical;
+}
+
 input:focus {
+  border-color: #38635d;
+  box-shadow: 0 0 0 3px rgba(56, 99, 93, 0.16);
+}
+
+textarea:focus {
   border-color: #38635d;
   box-shadow: 0 0 0 3px rgba(56, 99, 93, 0.16);
 }
@@ -122,4 +140,32 @@ button:disabled {
 
 .message.error {
   color: #b3261e;
+}
+
+.thread-messages {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.thread-message {
+  background: #f9f7f0;
+  border: 1px solid #ded7c9;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.thread-message-sender {
+  color: #38635d;
+  font-size: 12px;
+  font-weight: 900;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.thread-message-body {
+  color: #17211f;
+  font-size: 14px;
+  line-height: 20px;
+  margin: 0;
 }

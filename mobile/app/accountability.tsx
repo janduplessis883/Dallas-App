@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
+import * as Notifications from 'expo-notifications';
 import { Link } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
@@ -33,6 +34,29 @@ type AccountabilityPartner = {
   notes: string | null;
   relationship: string | null;
   time_zone: string | null;
+};
+
+type AccountabilityCheckIn = {
+  completed_at: string;
+  id: string;
+  note: string | null;
+  partner_id: string;
+};
+
+type AccountabilityPlannedCheckIn = {
+  id: string;
+  note: string | null;
+  notification_id: string | null;
+  partner_id: string;
+  scheduled_at: string;
+};
+
+type AccountabilityThreadMessage = {
+  body: string;
+  created_at: string;
+  id: string;
+  partner_id: string;
+  sender_type: 'user' | 'partner';
 };
 
 type PartnerForm = {
@@ -57,6 +81,8 @@ const emptyPartnerForm: PartnerForm = {
   timeZone: 'Europe/London',
 };
 
+const defaultCheckInReplyUrl = 'https://dallas-app.onrender.com/check-in-reply/';
+
 const timeZones = [
   { label: 'London', value: 'Europe/London' },
   { label: 'Johannesburg', value: 'Africa/Johannesburg' },
@@ -76,8 +102,14 @@ export default function AccountabilityScreen() {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [form, setForm] = useState<PartnerForm>(emptyPartnerForm);
   const [loading, setLoading] = useState(true);
+  const [addingPlannedCheckIn, setAddingPlannedCheckIn] = useState(false);
+  const [checkIns, setCheckIns] = useState<AccountabilityCheckIn[]>([]);
+  const [completingCheckIn, setCompletingCheckIn] = useState(false);
+  const [completingPlannedCheckInId, setCompletingPlannedCheckInId] = useState('');
   const [message, setMessage] = useState('');
+  const [partnerMessages, setPartnerMessages] = useState<AccountabilityThreadMessage[]>([]);
   const [partners, setPartners] = useState<AccountabilityPartner[]>([]);
+  const [plannedCheckIns, setPlannedCheckIns] = useState<AccountabilityPlannedCheckIn[]>([]);
   const [saving, setSaving] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
   const [session, setSession] = useState<Session | null>(null);
@@ -142,6 +174,85 @@ export default function AccountabilityScreen() {
     setPartners(data ?? []);
   }
 
+  async function loadCheckIns(partnerId: string, mounted = true, userId = session?.user.id) {
+    if (!userId || !partnerId) {
+      setCheckIns([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('accountability_check_ins')
+      .select('completed_at, id, note, partner_id')
+      .eq('user_id', userId)
+      .eq('partner_id', partnerId)
+      .order('completed_at', { ascending: false })
+      .limit(8);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setCheckIns(data ?? []);
+  }
+
+  async function loadPlannedCheckIns(partnerId: string, mounted = true, userId = session?.user.id) {
+    if (!userId || !partnerId) {
+      setPlannedCheckIns([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('accountability_planned_check_ins')
+      .select('id, note, notification_id, partner_id, scheduled_at')
+      .eq('user_id', userId)
+      .eq('partner_id', partnerId)
+      .order('scheduled_at', { ascending: true })
+      .limit(6);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setPlannedCheckIns(data ?? []);
+  }
+
+  async function loadPartnerMessages(partnerId: string, mounted = true, userId = session?.user.id) {
+    if (!userId || !partnerId) {
+      setPartnerMessages([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('accountability_check_in_messages')
+      .select('body, created_at, id, partner_id, sender_type')
+      .eq('user_id', userId)
+      .eq('partner_id', partnerId)
+      .eq('sender_type', 'partner')
+      .order('created_at', { ascending: false })
+      .limit(8);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setPartnerMessages(data ?? []);
+  }
+
   async function savePartner({ silent = false } = {}) {
     if (!session) {
       setMessage('Sign in before saving accountability partners.');
@@ -169,7 +280,6 @@ export default function AccountabilityScreen() {
     const { data, error } = await supabase
       .from('accountability_partners')
       .upsert({
-        check_in_at: buildCheckInIso(form.checkInDate, form.checkInTime),
         id: selectedPartnerId || undefined,
         location: form.location.trim() || null,
         mobile_number: trimmedMobile || null,
@@ -193,6 +303,9 @@ export default function AccountabilityScreen() {
 
     setSelectedPartnerId(data.id);
     await loadPartners(session.user.id);
+    await loadCheckIns(data.id, true, session.user.id);
+    await loadPlannedCheckIns(data.id, true, session.user.id);
+    await loadPartnerMessages(data.id, true, session.user.id);
 
     if (!silent) {
       setMessage('Accountability partner saved.');
@@ -204,6 +317,9 @@ export default function AccountabilityScreen() {
   function handleNewPartner() {
     setForm(emptyPartnerForm);
     setSelectedPartnerId('');
+    setCheckIns([]);
+    setPlannedCheckIns([]);
+    setPartnerMessages([]);
     setAvatarFailed(false);
     setMessage('');
   }
@@ -222,6 +338,9 @@ export default function AccountabilityScreen() {
       relationship: partner.relationship ?? '',
       timeZone: partner.time_zone ?? 'Europe/London',
     });
+    loadCheckIns(partner.id);
+    loadPlannedCheckIns(partner.id);
+    loadPartnerMessages(partner.id);
   }
 
   async function handleAvatarUpload() {
@@ -336,7 +455,16 @@ export default function AccountabilityScreen() {
       form.checkInDate || form.checkInTime
         ? ` My next check-in is planned for ${[form.checkInDate, form.checkInTime].filter(Boolean).join(' at ')}.`
         : '';
-    const body = `Hi ${form.name.trim()}, this is my Dallas accountability check-in.${checkInText} Can you check in with me?`;
+    const replyLink = await createCheckInThread({
+      body: `Check-in message sent to ${form.name.trim()}.${checkInText}`,
+      partnerId,
+    });
+
+    if (!replyLink) {
+      return;
+    }
+
+    const body = `Hi ${form.name.trim()}, this is my Dallas accountability check-in.${checkInText} Can you check in with me?\n\nReply here: ${replyLink}`;
     const sent = await openSms(form.mobileNumber, body);
 
     if (!sent) {
@@ -345,6 +473,199 @@ export default function AccountabilityScreen() {
 
     await markPartnerTimestamp(partnerId, 'last_notified_at');
     setMessage('Check-in message opened in Messages.');
+  }
+
+  async function createCheckInThread({
+    body,
+    partnerId,
+    plannedCheckInId = null,
+  }: {
+    body: string;
+    partnerId: string;
+    plannedCheckInId?: string | null;
+  }) {
+    if (!session) {
+      return '';
+    }
+
+    const { data: thread, error: threadError } = await supabase
+      .from('accountability_check_in_threads')
+      .insert({
+        partner_id: partnerId,
+        planned_check_in_id: plannedCheckInId,
+        user_id: session.user.id,
+      })
+      .select('id, partner_token')
+      .single();
+
+    if (threadError) {
+      setMessage(threadError.message);
+      return '';
+    }
+
+    const { error: messageError } = await supabase.from('accountability_check_in_messages').insert({
+      body,
+      partner_id: partnerId,
+      sender_type: 'user',
+      thread_id: thread.id,
+      user_id: session.user.id,
+    });
+
+    if (messageError) {
+      setMessage(messageError.message);
+      return '';
+    }
+
+    return buildCheckInReplyUrl(thread.partner_token);
+  }
+
+  async function handleAddPlannedCheckIn() {
+    if (!session) {
+      return;
+    }
+
+    const partnerId = selectedPartnerId || (await savePartner({ silent: true }));
+
+    if (!partnerId) {
+      return;
+    }
+
+    const scheduledAt = buildCheckInIso(form.checkInDate, form.checkInTime || '18:00');
+
+    if (!scheduledAt) {
+      setMessage('Choose a date and time before adding a planned check-in.');
+      return;
+    }
+
+    setAddingPlannedCheckIn(true);
+    setMessage('');
+    const partnerName = getPartnerName(partnerId, partners, form.name);
+    const notificationId = await scheduleCheckInNotification({
+      partnerName,
+      scheduledAt,
+    });
+
+    const { error } = await supabase.from('accountability_planned_check_ins').insert({
+      notification_id: notificationId,
+      note: form.notes.trim() || null,
+      partner_id: partnerId,
+      scheduled_at: scheduledAt,
+      user_id: session.user.id,
+    });
+
+    setAddingPlannedCheckIn(false);
+
+    if (error) {
+      await cancelCheckInNotification(notificationId);
+      setMessage(error.message);
+      return;
+    }
+
+    await loadPlannedCheckIns(partnerId);
+    setMessage(
+      notificationId
+        ? `Planned check-in added for ${partnerName}. Notification scheduled.`
+        : `Planned check-in added for ${partnerName}. Enable notifications to get an alert.`,
+    );
+  }
+
+  async function handleMarkCheckInCompleted() {
+    if (!session) {
+      return;
+    }
+
+    const partnerId = selectedPartnerId || (await savePartner({ silent: true }));
+
+    if (!partnerId) {
+      return;
+    }
+
+    await createCompletedCheckIn({
+      note: form.notes.trim() || null,
+      partnerId,
+    });
+  }
+
+  async function handleCompletePlannedCheckIn(plannedCheckIn: AccountabilityPlannedCheckIn) {
+    setCompletingPlannedCheckInId(plannedCheckIn.id);
+
+    const completed = await createCompletedCheckIn({
+      note: plannedCheckIn.note,
+      partnerId: plannedCheckIn.partner_id,
+    });
+
+    if (!completed) {
+      setCompletingPlannedCheckInId('');
+      return;
+    }
+
+    await cancelCheckInNotification(plannedCheckIn.notification_id);
+
+    const { error } = await supabase
+      .from('accountability_planned_check_ins')
+      .delete()
+      .eq('id', plannedCheckIn.id)
+      .eq('partner_id', plannedCheckIn.partner_id);
+
+    setCompletingPlannedCheckInId('');
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await loadPlannedCheckIns(plannedCheckIn.partner_id);
+  }
+
+  async function handleRemovePlannedCheckIn(plannedCheckIn: AccountabilityPlannedCheckIn) {
+    await cancelCheckInNotification(plannedCheckIn.notification_id);
+
+    const { error } = await supabase
+      .from('accountability_planned_check_ins')
+      .delete()
+      .eq('id', plannedCheckIn.id)
+      .eq('partner_id', plannedCheckIn.partner_id);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await loadPlannedCheckIns(plannedCheckIn.partner_id);
+    setMessage('Planned check-in removed.');
+  }
+
+  async function createCompletedCheckIn({
+    note,
+    partnerId,
+  }: {
+    note: string | null;
+    partnerId: string;
+  }) {
+    if (!session) {
+      return false;
+    }
+
+    setCompletingCheckIn(true);
+    setMessage('');
+
+    const { error } = await supabase.from('accountability_check_ins').insert({
+      completed_at: new Date().toISOString(),
+      note,
+      partner_id: partnerId,
+      user_id: session.user.id,
+    });
+
+    setCompletingCheckIn(false);
+
+    if (error) {
+      setMessage(error.message);
+      return false;
+    }
+
+    await loadCheckIns(partnerId);
+    setMessage(`Check-in with ${getPartnerName(partnerId, partners, form.name)} marked complete.`);
+    return true;
   }
 
   async function markPartnerTimestamp(partnerId: string, field: 'invited_at' | 'last_notified_at') {
@@ -397,6 +718,27 @@ export default function AccountabilityScreen() {
       ...currentForm,
       [key]: value,
     }));
+  }
+
+  function updateCheckInDate(nextDate: Date) {
+    updateField('checkInDate', formatDateForInput(nextDate));
+
+    if (!form.checkInTime) {
+      updateField('checkInTime', '18:00');
+    }
+  }
+
+  function adjustCheckInDate(days: number) {
+    const currentDate = parseCheckInDate(form.checkInDate) ?? new Date();
+    currentDate.setDate(currentDate.getDate() + days);
+    updateCheckInDate(currentDate);
+  }
+
+  function adjustCheckInTime(minutes: number) {
+    const currentTime = parseCheckInTime(form.checkInTime);
+    const nextTime = new Date();
+    nextTime.setHours(currentTime.hour, currentTime.minute + minutes, 0, 0);
+    updateField('checkInTime', formatTimeForInput(nextTime));
   }
 
   if (loading) {
@@ -484,6 +826,112 @@ export default function AccountabilityScreen() {
                           <Text style={styles.inlineStatusText}>
                             Invited: {formatDateTime(partner.invited_at)} · Last message: {formatDateTime(partner.last_notified_at)}
                           </Text>
+                          <Text style={styles.inlineStatusText}>
+                            Last completed: {formatDateTime(checkIns[0]?.completed_at ?? null)}
+                          </Text>
+
+                          <View style={styles.plannedSection}>
+                            <Text style={styles.inlineSectionTitle}>Planned check-ins</Text>
+                            {plannedCheckIns.length ? (
+                              <View style={styles.plannedList}>
+                                {plannedCheckIns.map((plannedCheckIn) => (
+                                  <View key={plannedCheckIn.id} style={styles.plannedItem}>
+                                    <View style={styles.plannedItemCopy}>
+                                      <Text style={styles.plannedItemTitle}>
+                                        {formatDateTime(plannedCheckIn.scheduled_at)}
+                                      </Text>
+                                      {plannedCheckIn.note ? (
+                                        <Text style={styles.plannedItemNote}>{plannedCheckIn.note}</Text>
+                                      ) : null}
+                                    </View>
+                                    <View style={styles.plannedItemActions}>
+                                      <Pressable
+                                        disabled={Boolean(completingPlannedCheckInId)}
+                                        style={[
+                                          styles.miniPrimaryButton,
+                                          completingPlannedCheckInId === plannedCheckIn.id && styles.disabledButton,
+                                        ]}
+                                        onPress={() => handleCompletePlannedCheckIn(plannedCheckIn)}
+                                      >
+                                        <Text style={styles.miniPrimaryButtonText}>
+                                          {completingPlannedCheckInId === plannedCheckIn.id ? 'Saving' : 'Done'}
+                                        </Text>
+                                      </Pressable>
+                                      <Pressable
+                                        disabled={Boolean(completingPlannedCheckInId)}
+                                        style={styles.miniSecondaryButton}
+                                        onPress={() => handleRemovePlannedCheckIn(plannedCheckIn)}
+                                      >
+                                        <Text style={styles.miniSecondaryButtonText}>Remove</Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                ))}
+                              </View>
+                            ) : (
+                              <Text style={styles.inlineStatusText}>No planned check-ins yet.</Text>
+                            )}
+
+                            <View style={styles.pickerPanel}>
+                              <View style={styles.pickerHeaderRow}>
+                                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInDate(-1)}>
+                                  <Text style={styles.stepperButtonText}>-</Text>
+                                </Pressable>
+                                <View style={styles.pickerValue}>
+                                  <Text style={styles.pickerValueLabel}>Date</Text>
+                                  <Text style={styles.pickerValueText}>{formatHumanDate(form.checkInDate)}</Text>
+                                </View>
+                                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInDate(1)}>
+                                  <Text style={styles.stepperButtonText}>+</Text>
+                                </Pressable>
+                              </View>
+
+                              <View style={styles.quickDateRow}>
+                                {getQuickDateOptions().map((option) => (
+                                  <Pressable
+                                    key={option.label}
+                                    style={[
+                                      styles.quickDateButton,
+                                      form.checkInDate === option.value && styles.activeQuickDateButton,
+                                    ]}
+                                    onPress={() => updateCheckInDate(option.date)}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.quickDateButtonText,
+                                        form.checkInDate === option.value && styles.activeQuickDateButtonText,
+                                      ]}
+                                    >
+                                      {option.label}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                              </View>
+
+                              <View style={styles.pickerHeaderRow}>
+                                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInTime(-15)}>
+                                  <Text style={styles.stepperButtonText}>-</Text>
+                                </Pressable>
+                                <View style={styles.pickerValue}>
+                                  <Text style={styles.pickerValueLabel}>Time</Text>
+                                  <Text style={styles.pickerValueText}>{form.checkInTime || '18:00'}</Text>
+                                </View>
+                                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInTime(15)}>
+                                  <Text style={styles.stepperButtonText}>+</Text>
+                                </Pressable>
+                              </View>
+
+                              <Pressable
+                                disabled={addingPlannedCheckIn}
+                                style={[styles.inlinePrimaryButton, addingPlannedCheckIn && styles.disabledButton]}
+                                onPress={handleAddPlannedCheckIn}
+                              >
+                                <Text style={styles.inlinePrimaryButtonText}>
+                                  {addingPlannedCheckIn ? 'Adding...' : 'Add planned check-in'}
+                                </Text>
+                              </Pressable>
+                            </View>
+                          </View>
                         </View>
                       ) : null}
                     </View>
@@ -562,21 +1010,6 @@ export default function AccountabilityScreen() {
               </View>
             </View>
 
-            <View style={styles.twoColumn}>
-              <Field
-                label="Check-in date"
-                placeholder="2026-06-21"
-                value={form.checkInDate}
-                onChangeText={(value) => updateField('checkInDate', value)}
-              />
-              <Field
-                label="Check-in time"
-                placeholder="18:30"
-                value={form.checkInTime}
-                onChangeText={(value) => updateField('checkInTime', value)}
-              />
-            </View>
-
             <Field
               label="Notes"
               multiline
@@ -588,6 +1021,83 @@ export default function AccountabilityScreen() {
             <Pressable disabled={saving} style={[styles.button, saving && styles.disabledButton]} onPress={() => savePartner()}>
               <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save partner'}</Text>
             </Pressable>
+          </View>
+
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Completed check-ins</Text>
+            <Text style={styles.mutedText}>
+              Mark a real check-in after it happens and keep a simple history that names the partner.
+            </Text>
+
+            <Pressable
+              disabled={completingCheckIn}
+              style={[styles.button, completingCheckIn && styles.disabledButton]}
+              onPress={handleMarkCheckInCompleted}
+            >
+              <Text style={styles.buttonText}>{completingCheckIn ? 'Saving...' : 'Mark completed check-in'}</Text>
+            </Pressable>
+
+            {checkIns.length ? (
+              <View style={styles.historyList}>
+                {checkIns.map((checkIn) => (
+                  <View key={checkIn.id} style={styles.historyItem}>
+                    <View style={styles.historyCopy}>
+                      <Text style={styles.historyTitle}>{formatDateTime(checkIn.completed_at)}</Text>
+                      <Text style={styles.historyPartner}>
+                        with {getPartnerName(checkIn.partner_id, partners, form.name)}
+                      </Text>
+                      {checkIn.note ? <Text style={styles.historyNote}>{checkIn.note}</Text> : null}
+                    </View>
+                    <HistoryPartnerAvatar
+                      fallbackName={form.name}
+                      partner={partners.find((partner) => partner.id === checkIn.partner_id) ?? null}
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.mutedText}>
+                {selectedPartnerId ? 'No completed check-ins yet.' : 'Save or select a partner to start history.'}
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Partner replies</Text>
+            <Text style={styles.mutedText}>
+              Replies sent from check-in links appear here for the selected partner.
+            </Text>
+
+            {partnerMessages.length ? (
+              <View style={styles.historyList}>
+                {partnerMessages.map((partnerMessage) => (
+                  <View key={partnerMessage.id} style={styles.historyItem}>
+                    <View style={styles.historyCopy}>
+                      <Text style={styles.historyTitle}>{formatDateTime(partnerMessage.created_at)}</Text>
+                      <Text style={styles.historyPartner}>
+                        from {getPartnerName(partnerMessage.partner_id, partners, form.name)}
+                      </Text>
+                      <Text style={styles.historyNote}>{partnerMessage.body}</Text>
+                    </View>
+                    <HistoryPartnerAvatar
+                      fallbackName={form.name}
+                      partner={partners.find((partner) => partner.id === partnerMessage.partner_id) ?? null}
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.mutedText}>
+                {selectedPartnerId ? 'No partner replies yet.' : 'Select a partner to view replies.'}
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Partner Dallas account</Text>
+            <Text style={styles.mutedText}>
+              Later, partners will be able to create their own Dallas account from an invite. For now, SMS invite keeps them outside the app.
+            </Text>
           </View>
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -635,6 +1145,28 @@ function Field({
   );
 }
 
+function HistoryPartnerAvatar({
+  fallbackName,
+  partner,
+}: {
+  fallbackName: string;
+  partner: AccountabilityPartner | null;
+}) {
+  if (partner?.avatar_path) {
+    return (
+      <View style={styles.historyAvatar}>
+        <Image source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }} style={styles.historyAvatarImage} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.historyAvatar}>
+      <Text style={styles.historyAvatarInitial}>{getInitial(partner?.name ?? fallbackName)}</Text>
+    </View>
+  );
+}
+
 function buildCheckInIso(date: string, time: string) {
   const trimmedDate = date.trim();
   const trimmedTime = time.trim();
@@ -650,12 +1182,42 @@ function buildCheckInIso(date: string, time: string) {
   return new Date(`${trimmedDate}T${trimmedTime}:00`).toISOString();
 }
 
+function buildCheckInReplyUrl(token: string) {
+  const configuredUrl = process.env.EXPO_PUBLIC_CHECK_IN_REPLY_URL ?? defaultCheckInReplyUrl;
+  const separator = configuredUrl.includes('?') ? '&' : '?';
+
+  return `${configuredUrl}${separator}token=${encodeURIComponent(token)}`;
+}
+
+function formatDateForInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
 function formatDateInput(value: string | null) {
   if (!value) {
     return '';
   }
 
   return value.slice(0, 10);
+}
+
+function formatHumanDate(value: string) {
+  const parsedDate = parseCheckInDate(value);
+
+  if (!parsedDate) {
+    return 'Choose date';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'short',
+    weekday: 'short',
+    year: 'numeric',
+  }).format(parsedDate);
 }
 
 function formatDateTime(value: string | null) {
@@ -672,12 +1234,31 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatTimeForInput(value: Date) {
+  return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+}
+
 function formatTimeInput(value: string | null) {
   if (!value) {
     return '';
   }
 
   return new Date(value).toTimeString().slice(0, 5);
+}
+
+function getQuickDateOptions() {
+  const today = new Date();
+  const tomorrow = new Date();
+  const nextWeek = new Date();
+
+  tomorrow.setDate(today.getDate() + 1);
+  nextWeek.setDate(today.getDate() + 7);
+
+  return [
+    { date: today, label: 'Today', value: formatDateForInput(today) },
+    { date: tomorrow, label: 'Tomorrow', value: formatDateForInput(tomorrow) },
+    { date: nextWeek, label: 'Next week', value: formatDateForInput(nextWeek) },
+  ];
 }
 
 function getImageExtension(contentType: string, uri: string) {
@@ -715,6 +1296,12 @@ function getLocalTime(timeZone: string | null) {
   }
 }
 
+function getPartnerName(partnerId: string, partners: AccountabilityPartner[], fallbackName: string) {
+  const partnerName = partners.find((partner) => partner.id === partnerId)?.name ?? fallbackName.trim();
+
+  return partnerName || 'this partner';
+}
+
 function getPublicPartnerAvatarUrl(path: string) {
   return supabase.storage.from('accountability-avatars').getPublicUrl(path).data.publicUrl;
 }
@@ -725,6 +1312,80 @@ function isInternationalPhoneNumber(value: string) {
 
 function normalizePhoneNumber(value: string) {
   return value.trim().replace(/[^\d+]/g, '');
+}
+
+function parseCheckInDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00`);
+
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function parseCheckInTime(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    return { hour: 18, minute: 0 };
+  }
+
+  const [hour, minute] = value.split(':').map(Number);
+
+  return {
+    hour: Number.isFinite(hour) ? hour : 18,
+    minute: Number.isFinite(minute) ? minute : 0,
+  };
+}
+
+async function cancelCheckInNotification(notificationId: string | null) {
+  if (!notificationId) {
+    return;
+  }
+
+  try {
+    await Notifications.cancelScheduledNotificationAsync(notificationId);
+  } catch {
+    // The notification may already have fired or been cleared by the OS.
+  }
+}
+
+async function scheduleCheckInNotification({
+  partnerName,
+  scheduledAt,
+}: {
+  partnerName: string;
+  scheduledAt: string;
+}) {
+  const scheduledDate = new Date(scheduledAt);
+  const secondsUntilDue = Math.floor((scheduledDate.getTime() - Date.now()) / 1000);
+
+  if (!Number.isFinite(secondsUntilDue) || secondsUntilDue <= 0) {
+    return null;
+  }
+
+  const permissions = await Notifications.getPermissionsAsync();
+  let finalStatus = permissions.status;
+
+  if (finalStatus !== 'granted') {
+    const requestedPermissions = await Notifications.requestPermissionsAsync();
+    finalStatus = requestedPermissions.status;
+  }
+
+  if (finalStatus !== 'granted') {
+    return null;
+  }
+
+  return Notifications.scheduleNotificationAsync({
+    content: {
+      body: `Your planned check-in with ${partnerName} is due now.`,
+      sound: false,
+      title: 'Dallas check-in due',
+    },
+    trigger: {
+      seconds: secondsUntilDue,
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+    },
+  });
 }
 
 const styles = StyleSheet.create({
@@ -887,6 +1548,72 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 17,
   },
+  inlineSectionTitle: {
+    color: '#17211F',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  plannedSection: {
+    gap: 10,
+    paddingTop: 4,
+  },
+  plannedList: {
+    gap: 8,
+  },
+  plannedItem: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    padding: 10,
+  },
+  plannedItemCopy: {
+    gap: 3,
+  },
+  plannedItemTitle: {
+    color: '#17211F',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  plannedItemNote: {
+    color: '#4F5D58',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  plannedItemActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  miniPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#38635D',
+    borderRadius: 8,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 34,
+    paddingHorizontal: 8,
+  },
+  miniPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  miniSecondaryButton: {
+    alignItems: 'center',
+    borderColor: '#38635D',
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 34,
+    paddingHorizontal: 8,
+  },
+  miniSecondaryButtonText: {
+    color: '#38635D',
+    fontSize: 12,
+    fontWeight: '900',
+  },
   avatarRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -965,6 +1692,137 @@ const styles = StyleSheet.create({
   twoColumn: {
     flexDirection: 'row',
     gap: 10,
+  },
+  pickerPanel: {
+    backgroundColor: '#F9F7F0',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
+  pickerHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pickerValue: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 3,
+  },
+  pickerValueLabel: {
+    color: '#697570',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  pickerValueText: {
+    color: '#17211F',
+    fontSize: 17,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  stepperButton: {
+    alignItems: 'center',
+    backgroundColor: '#38635D',
+    borderRadius: 8,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  stepperButtonText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  quickDateRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickDateButton: {
+    alignItems: 'center',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 8,
+  },
+  activeQuickDateButton: {
+    backgroundColor: '#38635D',
+    borderColor: '#38635D',
+  },
+  quickDateButtonText: {
+    color: '#4F5D58',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  activeQuickDateButtonText: {
+    color: '#FFFFFF',
+  },
+  pickerHint: {
+    color: '#697570',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    textAlign: 'center',
+  },
+  historyList: {
+    gap: 8,
+  },
+  historyItem: {
+    alignItems: 'center',
+    backgroundColor: '#F9F7F0',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    justifyContent: 'space-between',
+    padding: 12,
+  },
+  historyCopy: {
+    flex: 1,
+    gap: 4,
+    paddingRight: 12,
+  },
+  historyTitle: {
+    color: '#17211F',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  historyPartner: {
+    color: '#38635D',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  historyNote: {
+    color: '#4F5D58',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  historyAvatar: {
+    alignItems: 'center',
+    backgroundColor: '#ECE5D8',
+    borderColor: '#DED7C9',
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 44,
+  },
+  historyAvatarImage: {
+    height: 44,
+    width: 44,
+  },
+  historyAvatarInitial: {
+    color: '#38635D',
+    fontSize: 17,
+    fontWeight: '900',
   },
   button: {
     alignItems: 'center',

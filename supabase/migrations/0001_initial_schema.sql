@@ -41,24 +41,28 @@ alter table public.recovery_plans enable row level security;
 alter table public.accountability_partners enable row level security;
 alter table public.push_tokens enable row level security;
 
+drop policy if exists "Users can manage their own profile" on public.profiles;
 create policy "Users can manage their own profile"
   on public.profiles
   for all
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
 
+drop policy if exists "Users can manage their own recovery plans" on public.recovery_plans;
 create policy "Users can manage their own recovery plans"
   on public.recovery_plans
   for all
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can manage their own accountability partners" on public.accountability_partners;
 create policy "Users can manage their own accountability partners"
   on public.accountability_partners
   for all
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can manage their own push tokens" on public.push_tokens;
 create policy "Users can manage their own push tokens"
   on public.push_tokens
   for all
