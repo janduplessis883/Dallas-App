@@ -224,21 +224,31 @@ async function callCheckInReplyFunction(token, body) {
   const response = await fetch(`${supabaseUrl}/functions/v1/check-in-reply?token=${encodeURIComponent(token)}`, {
     body: body ? JSON.stringify(body) : undefined,
     headers: {
+      Authorization: `Bearer ${supabaseAnonKey}`,
       apikey: supabaseAnonKey,
       'Content-Type': 'application/json',
     },
     method: body ? 'POST' : 'GET',
   });
-  const data = await response.json().catch(() => ({}));
+  const responseText = await response.text();
+  const data = responseText ? parseJsonResponse(responseText) : {};
 
   if (!response.ok) {
     return {
       data: null,
-      error: new Error(data.error ?? 'Check-in reply failed.'),
+      error: new Error(data.error ?? responseText ?? `Check-in reply failed with status ${response.status}.`),
     };
   }
 
   return { data, error: null };
+}
+
+function parseJsonResponse(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
 }
 
 function getAuthLinkParams() {

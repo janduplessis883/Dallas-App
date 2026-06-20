@@ -80,7 +80,7 @@ async function getThread(adminClient: ReturnType<typeof createClient>, token: st
 
   return jsonResponse({
     messages: messages ?? [],
-    partnerName: thread.partner.name,
+    partnerName: getPartnerName(thread.partner),
     status: thread.status,
   });
 }
@@ -136,11 +136,19 @@ async function loadThread(adminClient: ReturnType<typeof createClient>, token: s
 
   return data as {
     id: string;
-    partner: { name: string };
+    partner: { name: string } | Array<{ name: string }>;
     partner_id: string;
     status: string;
     user_id: string;
   };
+}
+
+function getPartnerName(value: { name: string } | Array<{ name: string }>) {
+  if (Array.isArray(value)) {
+    return value[0]?.name ?? 'your accountability partner';
+  }
+
+  return value.name;
 }
 
 function jsonResponse(body: unknown, status = 200) {
