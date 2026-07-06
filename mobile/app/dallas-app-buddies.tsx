@@ -85,6 +85,26 @@ const timeZones = [
   { label: 'Auckland', value: 'Pacific/Auckland' },
 ] as const;
 
+async function getFunctionErrorMessage(error: unknown) {
+  const fallback = error instanceof Error ? error.message : 'Dallas accountability request failed.';
+  const context = (error as { context?: { text?: () => Promise<string> } } | null)?.context;
+
+  if (!context || typeof context.text !== 'function') {
+    return fallback;
+  }
+
+  try {
+    const responseText = await context.text();
+    const responseJson = JSON.parse(responseText) as { error?: unknown };
+
+    return typeof responseJson.error === 'string' && responseJson.error.trim()
+      ? responseJson.error
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function DallasAppBuddiesScreen() {
   const [appConnectLookup, setAppConnectLookup] = useState('');
   const [buddies, setBuddies] = useState<BuddyPartner[]>([]);
@@ -151,7 +171,7 @@ export default function DallasAppBuddiesScreen() {
     });
 
     if (error) {
-      setMessage(error.message);
+      setMessage(await getFunctionErrorMessage(error));
       return;
     }
 
@@ -308,7 +328,7 @@ export default function DallasAppBuddiesScreen() {
     setConnectingAppUser(false);
 
     if (error) {
-      setMessage(error.message);
+      setMessage(await getFunctionErrorMessage(error));
       return;
     }
 
@@ -409,7 +429,7 @@ export default function DallasAppBuddiesScreen() {
     });
 
     if (error) {
-      setMessage(error.message);
+      setMessage(await getFunctionErrorMessage(error));
       return;
     }
 
