@@ -7,6 +7,8 @@ create extension if not exists pgcrypto;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
+  email text,
+  accountability_pin text,
   phone_number text,
   avatar_path text,
   home_cover_image_path text,
@@ -38,6 +40,9 @@ create table if not exists public.accountability_partners (
   relationship text,
   notes text,
   avatar_path text,
+  partner_kind text not null default 'external' check (partner_kind in ('external', 'dallas_user')),
+  connected_user_id uuid references auth.users(id) on delete set null,
+  app_connection_id uuid,
   check_in_at timestamptz,
   invited_at timestamptz,
   last_notified_at timestamptz,
@@ -84,6 +89,25 @@ create table if not exists public.accountability_check_in_messages (
   partner_id uuid not null references public.accountability_partners(id) on delete cascade,
   thread_id uuid not null references public.accountability_check_in_threads(id) on delete cascade,
   sender_type text not null check (sender_type in ('user', 'partner')),
+  body text not null,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.accountability_app_connections (
+  id uuid primary key default gen_random_uuid(),
+  requester_user_id uuid not null references auth.users(id) on delete cascade,
+  recipient_user_id uuid not null references auth.users(id) on delete cascade,
+  status text not null default 'active' check (status in ('active', 'blocked')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (requester_user_id <> recipient_user_id)
+);
+
+create table if not exists public.accountability_app_messages (
+  id uuid primary key default gen_random_uuid(),
+  connection_id uuid not null references public.accountability_app_connections(id) on delete cascade,
+  sender_user_id uuid not null references auth.users(id) on delete cascade,
   body text not null,
   read_at timestamptz,
   created_at timestamptz not null default now()
@@ -153,6 +177,8 @@ create table if not exists public.event_plans (
 
 alter table public.profiles
   add column if not exists display_name text,
+  add column if not exists email text,
+  add column if not exists accountability_pin text,
   add column if not exists phone_number text,
   add column if not exists avatar_path text,
   add column if not exists home_cover_image_path text,
@@ -166,10 +192,35 @@ alter table public.accountability_partners
   add column if not exists relationship text,
   add column if not exists notes text,
   add column if not exists avatar_path text,
+  add column if not exists partner_kind text not null default 'external',
+  add column if not exists connected_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists app_connection_id uuid references public.accountability_app_connections(id) on delete set null,
   add column if not exists check_in_at timestamptz,
   add column if not exists invited_at timestamptz,
   add column if not exists last_notified_at timestamptz,
   add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'accountability_partners_partner_kind_check'
+  ) then
+    alter table public.accountability_partners
+      add constraint accountability_partners_partner_kind_check
+      check (partner_kind in ('external', 'dallas_user'));
+  end if;
+end $$;
+
+alter table public.accountability_partners
+  drop constraint if exists accountability_partners_app_connection_id_fkey;
+
+alter table public.accountability_partners
+  add constraint accountability_partners_app_connection_id_fkey
+  foreign key (app_connection_id)
+  references public.accountability_app_connections(id)
+  on delete set null;
 
 alter table public.accountability_planned_check_ins
   add column if not exists notification_id text;
@@ -224,8 +275,22 @@ alter table public.event_plans
 create index if not exists recovery_plans_user_id_idx
   on public.recovery_plans (user_id);
 
+create unique index if not exists profiles_accountability_pin_key
+  on public.profiles (accountability_pin)
+  where accountability_pin is not null;
+
+create index if not exists profiles_email_idx
+  on public.profiles (lower(email))
+  where email is not null;
+
 create index if not exists accountability_partners_user_id_idx
   on public.accountability_partners (user_id);
+
+create index if not exists accountability_partners_app_connection_id_idx
+  on public.accountability_partners (app_connection_id);
+
+create index if not exists accountability_partners_connected_user_id_idx
+  on public.accountability_partners (connected_user_id);
 
 create index if not exists accountability_check_ins_user_id_completed_at_idx
   on public.accountability_check_ins (user_id, completed_at desc);
@@ -251,6 +316,18 @@ create index if not exists accountability_check_in_messages_thread_id_created_at
 create index if not exists accountability_check_in_messages_user_id_created_at_idx
   on public.accountability_check_in_messages (user_id, created_at desc);
 
+create unique index if not exists accountability_app_connections_pair_key
+  on public.accountability_app_connections (
+    least(requester_user_id, recipient_user_id),
+    greatest(requester_user_id, recipient_user_id)
+  );
+
+create index if not exists accountability_app_messages_connection_id_created_at_idx
+  on public.accountability_app_messages (connection_id, created_at asc);
+
+create index if not exists accountability_app_messages_sender_user_id_idx
+  on public.accountability_app_messages (sender_user_id);
+
 create index if not exists push_tokens_user_id_idx
   on public.push_tokens (user_id);
 
@@ -267,6 +344,8 @@ alter table public.accountability_check_ins enable row level security;
 alter table public.accountability_planned_check_ins enable row level security;
 alter table public.accountability_check_in_threads enable row level security;
 alter table public.accountability_check_in_messages enable row level security;
+alter table public.accountability_app_connections enable row level security;
+alter table public.accountability_app_messages enable row level security;
 alter table public.push_tokens enable row level security;
 alter table public.prophetic_visions enable row level security;
 alter table public.event_plans enable row level security;
@@ -277,6 +356,23 @@ create policy "Users can manage their own profile"
   for all
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
+
+drop policy if exists "Connected Dallas buddies can view profile basics" on public.profiles;
+create policy "Connected Dallas buddies can view profile basics"
+  on public.profiles
+  for select
+  using (
+    (select auth.uid()) = id
+    or exists (
+      select 1
+      from public.accountability_app_connections connection
+      where connection.status = 'active'
+        and (
+          (connection.requester_user_id = (select auth.uid()) and connection.recipient_user_id = id)
+          or (connection.recipient_user_id = (select auth.uid()) and connection.requester_user_id = id)
+        )
+    )
+  );
 
 drop policy if exists "Users can manage their own recovery plans" on public.recovery_plans;
 create policy "Users can manage their own recovery plans"
@@ -320,6 +416,52 @@ create policy "Users can manage their own check-in messages"
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can view their Dallas accountability connections" on public.accountability_app_connections;
+create policy "Users can view their Dallas accountability connections"
+  on public.accountability_app_connections
+  for select
+  using ((select auth.uid()) in (requester_user_id, recipient_user_id));
+
+drop policy if exists "Users can create their Dallas accountability connections" on public.accountability_app_connections;
+create policy "Users can create their Dallas accountability connections"
+  on public.accountability_app_connections
+  for insert
+  with check ((select auth.uid()) in (requester_user_id, recipient_user_id));
+
+drop policy if exists "Users can update their Dallas accountability connections" on public.accountability_app_connections;
+create policy "Users can update their Dallas accountability connections"
+  on public.accountability_app_connections
+  for update
+  using ((select auth.uid()) in (requester_user_id, recipient_user_id))
+  with check ((select auth.uid()) in (requester_user_id, recipient_user_id));
+
+drop policy if exists "Users can view Dallas accountability messages" on public.accountability_app_messages;
+create policy "Users can view Dallas accountability messages"
+  on public.accountability_app_messages
+  for select
+  using (
+    exists (
+      select 1
+      from public.accountability_app_connections connection
+      where connection.id = connection_id
+        and (select auth.uid()) in (connection.requester_user_id, connection.recipient_user_id)
+    )
+  );
+
+drop policy if exists "Users can create Dallas accountability messages" on public.accountability_app_messages;
+create policy "Users can create Dallas accountability messages"
+  on public.accountability_app_messages
+  for insert
+  with check (
+    sender_user_id = (select auth.uid())
+    and exists (
+      select 1
+      from public.accountability_app_connections connection
+      where connection.id = connection_id
+        and (select auth.uid()) in (connection.requester_user_id, connection.recipient_user_id)
+    )
+  );
+
 drop policy if exists "Users can manage their own push tokens" on public.push_tokens;
 create policy "Users can manage their own push tokens"
   on public.push_tokens
@@ -348,15 +490,17 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, display_name, phone_number)
+  insert into public.profiles (id, display_name, phone_number, email)
   values (
     new.id,
     nullif(new.raw_user_meta_data->>'preferred_name', ''),
-    nullif(new.raw_user_meta_data->>'phone_number', '')
+    nullif(new.raw_user_meta_data->>'phone_number', ''),
+    lower(new.email)
   )
   on conflict (id) do update
     set display_name = coalesce(public.profiles.display_name, excluded.display_name),
         phone_number = coalesce(public.profiles.phone_number, excluded.phone_number),
+        email = coalesce(public.profiles.email, excluded.email),
         updated_at = now();
 
   return new;
@@ -401,6 +545,11 @@ create trigger set_accountability_planned_check_ins_updated_at
 drop trigger if exists set_accountability_check_in_threads_updated_at on public.accountability_check_in_threads;
 create trigger set_accountability_check_in_threads_updated_at
   before update on public.accountability_check_in_threads
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists set_accountability_app_connections_updated_at on public.accountability_app_connections;
+create trigger set_accountability_app_connections_updated_at
+  before update on public.accountability_app_connections
   for each row execute function public.set_updated_at();
 
 drop trigger if exists set_prophetic_visions_updated_at on public.prophetic_visions;

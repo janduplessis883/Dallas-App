@@ -11,6 +11,26 @@ import * as Notifications from 'expo-notifications';
 import { Link } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+type NotificationPermissionResult = Notifications.NotificationPermissionsStatus & {
+  canAskAgain?: boolean;
+  granted?: boolean;
+  status?: string;
+};
+
+function getPermissionStatusLabel(permissions: Notifications.NotificationPermissionsStatus) {
+  const permissionResult = permissions as NotificationPermissionResult;
+
+  if (permissionResult.granted ?? permissionResult.status === 'granted') {
+    return 'granted';
+  }
+
+  return permissionResult.canAskAgain ? 'undetermined' : 'denied';
+}
+
+function hasGrantedNotificationPermission(permissions: Notifications.NotificationPermissionsStatus) {
+  return getPermissionStatusLabel(permissions) === 'granted';
+}
+
 export default function RemindersScreen() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -28,7 +48,7 @@ export default function RemindersScreen() {
     const permissions = await Notifications.getPermissionsAsync();
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
 
-    setPermissionStatus(permissions.status);
+    setPermissionStatus(getPermissionStatusLabel(permissions));
     setScheduledCount(scheduledNotifications.length);
     setLoading(false);
   }
@@ -38,10 +58,11 @@ export default function RemindersScreen() {
     setMessage('');
 
     const permissions = await Notifications.requestPermissionsAsync();
+    const permissionGranted = hasGrantedNotificationPermission(permissions);
 
-    setPermissionStatus(permissions.status);
+    setPermissionStatus(getPermissionStatusLabel(permissions));
     setWorking(false);
-    setMessage(permissions.status === 'granted' ? 'Notifications are allowed.' : 'Notifications are not allowed yet.');
+    setMessage(permissionGranted ? 'Notifications are allowed.' : 'Notifications are not allowed yet.');
   }
 
   async function sendTestNotification() {
@@ -49,15 +70,15 @@ export default function RemindersScreen() {
     setMessage('');
 
     const permissions = await Notifications.getPermissionsAsync();
-    let finalStatus = permissions.status;
+    let permissionGranted = hasGrantedNotificationPermission(permissions);
 
-    if (finalStatus !== 'granted') {
+    if (!permissionGranted) {
       const requestedPermissions = await Notifications.requestPermissionsAsync();
-      finalStatus = requestedPermissions.status;
-      setPermissionStatus(finalStatus);
+      permissionGranted = hasGrantedNotificationPermission(requestedPermissions);
+      setPermissionStatus(getPermissionStatusLabel(requestedPermissions));
     }
 
-    if (finalStatus !== 'granted') {
+    if (!permissionGranted) {
       setWorking(false);
       setMessage('Allow notifications before sending a test.');
       return;

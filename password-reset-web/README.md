@@ -46,22 +46,10 @@ In Supabase Dashboard > Authentication > Email Templates:
 
 Confirmation signup email:
 
-```html
-<h2>Confirm your email address</h2>
-
-<p>Follow the link below to confirm this email address and finish signing up.</p>
-<p><a href="{{ .ConfirmationURL }}">Confirm email address</a></p>
-```
+Use the full HTML template in `../supabase/email-templates/confirm-signup.html`.
 
 Reset password email:
 
-```html
-<h2>Reset your password</h2>
-
-<p>We received a request to reset your password. Follow the link below to choose a new password.</p>
-<p><a href="{{ .ConfirmationURL }}">Reset password</a></p>
-
-<p>If you didn't request this, you can safely ignore this email.</p>
-```
+Use the full HTML template in `../supabase/email-templates/reset-password.html`.
 
 The app passes separate redirect URLs to Supabase when it calls signup and password reset. Keep the email templates using `{{ .ConfirmationURL }}` so Supabase preserves the correct flow and tokens.

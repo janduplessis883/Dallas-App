@@ -3,7 +3,12 @@ declare namespace NodeJS {
     EXPO_PUBLIC_SUPABASE_URL?: string;
     EXPO_PUBLIC_SUPABASE_ANON_KEY?: string;
     EXPO_PUBLIC_APP_ENV?: 'development' | 'preview' | 'production';
+    EXPO_PUBLIC_CHECK_IN_REPLY_URL?: string;
     EXPO_PUBLIC_PASSWORD_RESET_URL?: string;
     EXPO_PUBLIC_SIGNUP_CONFIRMATION_URL?: string;
   }
 }
+
+declare const process: {
+  env: NodeJS.ProcessEnv;
+};

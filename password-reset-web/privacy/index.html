@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Privacy statement for the Dallas app, including Supabase hosting, GDPR guidelines, collected data, and account deletion."
+    />
+    <title>Dallas App | Privacy Statement</title>
+    <script type="module" src="/src/site.js"></script>
+  </head>
+  <body class="site-page">
+    <div class="scroll-progress" data-scroll-progress></div>
+    <header class="site-header">
+      <a class="brand-link" href="/home/">
+        <img class="brand-mark" src="/dallas-login-logo.png" alt="Dallas" />
+        <span>Dallas</span>
+      </a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-label="Open navigation" data-nav-toggle>
+        <span></span>
+      </button>
+      <nav class="nav-links" data-nav-links>
+        <a href="/home/">Home</a>
+        <a href="#statement">Statement</a>
+        <a href="#data">Data</a>
+      </nav>
+    </header>
+
+    <main class="site-main">
+      <section class="privacy-hero" data-reveal>
+        <h1>Privacy statement.</h1>
+        <p>
+          Dallas stores app data with Supabase in Europe and is built to follow GDPR guidelines. This page explains the
+          data used by the current first draft, version 1, build 12.
+        </p>
+      </section>
+
+      <section id="statement" class="content-section">
+        <div class="section-inner privacy-grid">
+          <div class="privacy-tabs" data-reveal>
+            <button class="privacy-tab is-active" type="button" data-privacy-tab="hosting">Hosting and GDPR</button>
+            <button class="privacy-tab" type="button" data-privacy-tab="deletion">Deleting your account</button>
+            <button class="privacy-tab" type="button" data-privacy-tab="features">Database features</button>
+            <button class="privacy-tab" type="button" data-privacy-tab="collected">Data collected</button>
+          </div>
+
+          <article class="privacy-panel" data-privacy-panel="hosting" data-reveal>
+            <h2>Hosting and GDPR</h2>
+            <p>
+              Dallas app data is hosted by Supabase in Europe. We follow GDPR guidelines for privacy, access control,
+              and deletion of user data. Supabase authentication is used for account creation, sign in, signup
+              confirmation, and password recovery.
+            </p>
+            <p>
+              The database uses row-level security so signed-in users can manage their own records. Some profile basics
+              may be visible to connected Dallas accountability buddies so the buddy feature can work.
+            </p>
+          </article>
+
+          <article class="privacy-panel" data-privacy-panel="deletion" hidden>
+            <h2>Deleting your account</h2>
+            <p>
+              If you delete your Dallas account in the app, your Dallas app data is deleted and is not retrievable.
+              This includes your profile, recovery plans, accountability information, event plans, reminders, images,
+              audio files, push tokens, and stored app content connected to your account.
+            </p>
+            <p>
+              Deleting the app from your phone does not automatically delete the cloud account. Use the in-app account
+              deletion option when you want the account and related Dallas data removed.
+            </p>
+          </article>
+
+          <article id="data" class="privacy-panel" data-privacy-panel="features" hidden>
+            <h2>Database features</h2>
+            <ul>
+              <li>Supabase Auth for email accounts, signup confirmation, sessions, and password recovery.</li>
+              <li>Postgres tables for profiles, recovery plans, accountability, Prophetic Vision, and event plans.</li>
+              <li>Row-level security policies that scope records to the signed-in user or connected buddy relationship.</li>
+              <li>Storage buckets for avatars, home cover images, accountability avatars, vision covers, and vision audio.</li>
+              <li>Edge functions for check-in replies, account deletion, and server-side assistant features.</li>
+              <li>Push-token storage for notification and reminder support.</li>
+            </ul>
+          </article>
+
+          <article class="privacy-panel" data-privacy-panel="collected" hidden>
+            <h2>Data collected</h2>
+            <ul class="data-list">
+              <li>Account details: email address, user ID, display name, phone number, and profile settings.</li>
+              <li>Profile media: avatar paths and home cover image paths.</li>
+              <li>Recovery content: plan titles, high-risk situations, vision text, coping steps, and support notes.</li>
+              <li>Accountability content: partner details, planned check-ins, notes, reply threads, and messages.</li>
+              <li>Dallas App Buddies: app buddy connections, message history, unread state, and connection status.</li>
+              <li>Prophetic Vision: short and long text, cover image paths, audio paths, and audio file names.</li>
+              <li>Event planning: event details, warnings, anchors, reminders, scripts, call plans, and debrief notes.</li>
+              <li>Notifications: push tokens, platform, scheduled reminder references, and last-seen timestamps.</li>
+              <li>Device-only settings: local OpenAI API key storage and legal acknowledgement state can live on the device.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Dallas privacy statement for version 1, build 12.</span>
+      <a href="/home/">Back to home</a>
+    </footer>
+  </body>
+</html>

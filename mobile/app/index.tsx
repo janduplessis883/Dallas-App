@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
 import { deviceStorage } from '../src/lib/deviceStorage';
-import { registerAndSavePushTokenAsync } from '../src/lib/notifications';
+import { registerAndSavePushTokenAsync, syncGrantedPushTokenAsync } from '../src/lib/notifications';
 import { isSupabaseConfigured, supabase } from '../src/lib/supabase';
 
 const loginLogo = require('../assets/login-logo.png');
@@ -58,6 +58,12 @@ const homeLinks = [
     href: '/accountability',
     icon: 'groups',
     label: 'Accountability',
+  },
+  {
+    description: 'Dallas app buddy messages, check-ins, and settings.',
+    href: '/dallas-app-buddies',
+    icon: 'forum',
+    label: 'Dallas App Buddies',
   },
   {
     description: 'Prepare before, stay anchored during, and debrief after events.',
@@ -111,6 +117,8 @@ export default function HomeScreen() {
   const [profile, setProfile] = useState<HomeProfile | null>(null);
   const [importantInfoAccepted, setImportantInfoAccepted] = useState(false);
   const [importantInfoLoading, setImportantInfoLoading] = useState(true);
+  const [accountabilityUnreadCount, setAccountabilityUnreadCount] = useState(0);
+  const [buddiesUnreadCount, setBuddiesUnreadCount] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [pushStatus, setPushStatus] = useState('Not requested');
@@ -149,6 +157,8 @@ export default function HomeScreen() {
       setSessionLoading(false);
 
       if (data.session) {
+        syncSavedPushToken(data.session.user.id);
+        loadUnreadCounts(data.session.user.id, mounted);
         loadHomeProfile(data.session.user.id).then((nextProfile) => {
           if (mounted) {
             setProfile(nextProfile);
@@ -170,6 +180,8 @@ export default function HomeScreen() {
       setSessionLoading(false);
 
       if (nextSession) {
+        syncSavedPushToken(nextSession.user.id);
+        loadUnreadCounts(nextSession.user.id, mounted);
         loadHomeProfile(nextSession.user.id).then((nextProfile) => {
           if (mounted) {
             setProfile(nextProfile);
@@ -197,11 +209,15 @@ export default function HomeScreen() {
         setSessionLoading(false);
 
         if (!data.session) {
+          setAccountabilityUnreadCount(0);
+          setBuddiesUnreadCount(0);
           setAvatarFailed(false);
           setProfile(null);
           return;
         }
 
+        syncSavedPushToken(data.session.user.id);
+        loadUnreadCounts(data.session.user.id, active);
         loadHomeProfile(data.session.user.id).then((nextProfile) => {
           if (active) {
             setProfile(nextProfile);
@@ -223,6 +239,40 @@ export default function HomeScreen() {
     }
 
     setImportantInfoAccepted(true);
+  }
+
+  async function loadUnreadCounts(userId: string, active = true) {
+    const [{ count: webReplyCount }, { data: appConnections }] = await Promise.all([
+      supabase
+        .from('accountability_check_in_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('sender_type', 'partner')
+        .is('read_at', null),
+      supabase
+        .from('accountability_app_connections')
+        .select('id')
+        .or(`requester_user_id.eq.${userId},recipient_user_id.eq.${userId}`),
+    ]);
+
+    const connectionIds = (appConnections ?? []).map((connection) => connection.id);
+    let appMessageCount = 0;
+
+    if (connectionIds.length) {
+      const { count } = await supabase
+        .from('accountability_app_messages')
+        .select('id', { count: 'exact', head: true })
+        .in('connection_id', connectionIds)
+        .neq('sender_user_id', userId)
+        .is('read_at', null);
+
+      appMessageCount = count ?? 0;
+    }
+
+    if (active) {
+      setAccountabilityUnreadCount(webReplyCount ?? 0);
+      setBuddiesUnreadCount(appMessageCount);
+    }
   }
 
   async function handleAuthSubmit() {
@@ -512,7 +562,23 @@ export default function HomeScreen() {
                       <MaterialIcons color="#38635D" name={item.icon} size={21} />
                     </View>
                     <View style={styles.homeLinkCopy}>
-                      <Text style={styles.homeLinkTitle}>{item.label}</Text>
+                      <View style={styles.homeLinkTitleRow}>
+                        <Text style={styles.homeLinkTitle}>{item.label}</Text>
+                        {item.href === '/accountability' && accountabilityUnreadCount > 0 ? (
+                          <View style={styles.notificationBadge}>
+                            <Text style={styles.notificationBadgeText}>
+                              {accountabilityUnreadCount > 99 ? '99+' : accountabilityUnreadCount}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {item.href === '/dallas-app-buddies' && buddiesUnreadCount > 0 ? (
+                          <View style={styles.notificationBadge}>
+                            <Text style={styles.notificationBadgeText}>
+                              {buddiesUnreadCount > 99 ? '99+' : buddiesUnreadCount}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={styles.homeLinkDescription}>{item.description}</Text>
                     </View>
                     <Text style={styles.homeLinkArrow}>{'>'}</Text>
@@ -733,6 +799,12 @@ function getPreferredName(session: Session | null) {
   const preferredName = session?.user.user_metadata?.preferred_name;
 
   return typeof preferredName === 'string' ? preferredName : '';
+}
+
+function syncSavedPushToken(userId: string) {
+  syncGrantedPushTokenAsync(userId).catch(() => {
+    // Push token sync should not block loading the home screen.
+  });
 }
 
 async function loadHomeProfile(userId: string) {
@@ -1023,6 +1095,26 @@ const styles = StyleSheet.create({
   homeLinkTitle: {
     color: '#17211F',
     fontSize: 16,
+    fontWeight: '900',
+  },
+  homeLinkTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  notificationBadge: {
+    alignItems: 'center',
+    backgroundColor: '#E22D1A',
+    borderRadius: 14,
+    justifyContent: 'center',
+    minHeight: 28,
+    minWidth: 28,
+    paddingHorizontal: 8,
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 14,
     fontWeight: '900',
   },
   homeLinkDescription: {

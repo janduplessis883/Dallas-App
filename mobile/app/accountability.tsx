@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -11,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
@@ -18,11 +20,18 @@ import { Link } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
+import {
+  ensureNotificationChannelAsync,
+  notificationChannelId,
+  syncGrantedPushTokenAsync,
+} from '../src/lib/notifications';
 import { supabase } from '../src/lib/supabase';
 
 type AccountabilityPartner = {
+  app_connection_id: string | null;
   avatar_path: string | null;
   check_in_at: string | null;
+  connected_user_id: string | null;
   consent_confirmed_at: string | null;
   created_at: string;
   id: string;
@@ -32,6 +41,7 @@ type AccountabilityPartner = {
   mobile_number: string | null;
   name: string;
   notes: string | null;
+  partner_kind: 'external' | 'dallas_user';
   relationship: string | null;
   time_zone: string | null;
 };
@@ -74,6 +84,8 @@ type PartnerForm = {
   timeZone: string;
 };
 
+type SectionKey = 'partners' | 'details' | 'replies' | 'history';
+
 const emptyPartnerForm: PartnerForm = {
   checkInDate: '',
   checkInTime: '',
@@ -87,8 +99,31 @@ const emptyPartnerForm: PartnerForm = {
 
 const defaultCheckInReplyUrl = 'https://dallas-app.onrender.com/check-in-reply/';
 
+type NotificationPermissionResult = Notifications.NotificationPermissionsStatus & {
+  granted?: boolean;
+  status?: string;
+};
+
+function hasGrantedNotificationPermission(permissions: Notifications.NotificationPermissionsStatus) {
+  const permissionResult = permissions as NotificationPermissionResult;
+
+  return permissionResult.granted ?? permissionResult.status === 'granted';
+}
+
 const timeZones = [
   { label: 'London', value: 'Europe/London' },
+  { label: 'Denmark', value: 'Europe/Copenhagen' },
+  { label: 'Paris', value: 'Europe/Paris' },
+  { label: 'Berlin', value: 'Europe/Berlin' },
+  { label: 'Amsterdam', value: 'Europe/Amsterdam' },
+  { label: 'Madrid', value: 'Europe/Madrid' },
+  { label: 'Rome', value: 'Europe/Rome' },
+  { label: 'Stockholm', value: 'Europe/Stockholm' },
+  { label: 'Oslo', value: 'Europe/Oslo' },
+  { label: 'Zurich', value: 'Europe/Zurich' },
+  { label: 'Dublin', value: 'Europe/Dublin' },
+  { label: 'Lisbon', value: 'Europe/Lisbon' },
+  { label: 'Brussels', value: 'Europe/Brussels' },
   { label: 'Johannesburg', value: 'Africa/Johannesburg' },
   { label: 'New York', value: 'America/New_York' },
   { label: 'Chicago', value: 'America/Chicago' },
@@ -104,6 +139,12 @@ const timeZones = [
 
 export default function AccountabilityScreen() {
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<SectionKey, boolean>>({
+    details: false,
+    history: false,
+    partners: true,
+    replies: false,
+  });
   const [form, setForm] = useState<PartnerForm>(emptyPartnerForm);
   const [loading, setLoading] = useState(true);
   const [addingPlannedCheckIn, setAddingPlannedCheckIn] = useState(false);
@@ -117,6 +158,7 @@ export default function AccountabilityScreen() {
   const [saving, setSaving] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
   const [session, setSession] = useState<Session | null>(null);
+  const [showTimeZoneOptions, setShowTimeZoneOptions] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
@@ -124,10 +166,15 @@ export default function AccountabilityScreen() {
     () => partners.find((partner) => partner.id === selectedPartnerId) ?? null,
     [partners, selectedPartnerId],
   );
+  const externalPartners = useMemo(
+    () => partners.filter((partner) => partner.partner_kind !== 'dallas_user'),
+    [partners],
+  );
   const selectedAvatarUrl = selectedPartner?.avatar_path
     ? getPublicPartnerAvatarUrl(selectedPartner.avatar_path)
     : '';
   const selectedLocalTime = getLocalTime(form.timeZone);
+  const selectedTimeZoneLabel = getTimeZoneLabel(form.timeZone);
 
   useEffect(() => {
     let mounted = true;
@@ -150,6 +197,8 @@ export default function AccountabilityScreen() {
       await Promise.all([
         loadPartners(nextSession.user.id, mounted),
         loadUserDisplayName(nextSession.user.id, mounted, nextSession.user.user_metadata, nextSession.user.email),
+        markUnreadAccountabilityMessagesRead(nextSession.user.id),
+        syncGrantedPushTokenAsync(nextSession.user.id).catch(() => null),
       ]);
       setLoading(false);
     }
@@ -165,7 +214,7 @@ export default function AccountabilityScreen() {
     const { data, error } = await supabase
       .from('accountability_partners')
       .select(
-        'avatar_path, check_in_at, consent_confirmed_at, created_at, id, invited_at, last_notified_at, location, mobile_number, name, notes, relationship, time_zone',
+        'app_connection_id, avatar_path, check_in_at, connected_user_id, consent_confirmed_at, created_at, id, invited_at, last_notified_at, location, mobile_number, name, notes, partner_kind, relationship, time_zone',
       )
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
@@ -283,6 +332,15 @@ export default function AccountabilityScreen() {
     }
 
     setPartnerMessages(data ?? []);
+  }
+
+  async function markUnreadAccountabilityMessagesRead(userId: string) {
+    await supabase
+      .from('accountability_check_in_messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('sender_type', 'partner')
+      .is('read_at', null);
   }
 
   async function savePartner({ silent = false } = {}) {
@@ -576,6 +634,7 @@ export default function AccountabilityScreen() {
     const notificationId = await scheduleCheckInNotification({
       partnerName,
       scheduledAt,
+      userId: session.user.id,
     });
 
     const { error } = await supabase.from('accountability_planned_check_ins').insert({
@@ -746,6 +805,13 @@ export default function AccountabilityScreen() {
     return true;
   }
 
+  function toggleSection(sectionKey: SectionKey) {
+    setExpandedSections((currentSections) => ({
+      ...currentSections,
+      [sectionKey]: !currentSections[sectionKey],
+    }));
+  }
+
   function updateField(key: keyof PartnerForm, value: string) {
     setForm((currentForm) => ({
       ...currentForm,
@@ -812,17 +878,20 @@ export default function AccountabilityScreen() {
             Add trusted people, plan check-ins, and send support messages when you need a steady connection.
           </Text>
 
-          <View style={styles.panel}>
-            <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>Partners</Text>
+          <CollapsibleSection
+            action={
               <Pressable style={styles.smallButton} onPress={handleNewPartner}>
                 <Text style={styles.smallButtonText}>New</Text>
               </Pressable>
-            </View>
-
-            {partners.length ? (
+            }
+            expanded={expandedSections.partners}
+            summary={selectedPartner ? `Selected: ${selectedPartner.name}` : `${externalPartners.length} saved`}
+            title="Partners"
+            onToggle={() => toggleSection('partners')}
+          >
+            {externalPartners.length ? (
               <View style={styles.partnerList}>
-                {partners.map((partner) => {
+                {externalPartners.map((partner) => {
                   const selected = partner.id === selectedPartnerId;
 
                   return (
@@ -841,7 +910,9 @@ export default function AccountabilityScreen() {
                         <View style={styles.partnerCardCopy}>
                           <Text style={styles.partnerName}>{partner.name}</Text>
                           <Text style={styles.partnerMeta}>
-                            {[partner.location, getLocalTime(partner.time_zone)].filter(Boolean).join(' - ')}
+                            {partner.partner_kind === 'dallas_user'
+                              ? 'Dallas app partner'
+                              : [partner.location, getLocalTime(partner.time_zone)].filter(Boolean).join(' - ')}
                           </Text>
                         </View>
                       </Pressable>
@@ -972,11 +1043,16 @@ export default function AccountabilityScreen() {
                 })}
               </View>
             ) : (
-              <Text style={styles.mutedText}>No partners yet. Add your first support contact below.</Text>
+              <Text style={styles.mutedText}>No external partners yet. Add your first support contact below.</Text>
             )}
-          </View>
+          </CollapsibleSection>
 
-          <View style={styles.panel}>
+          <CollapsibleSection
+            expanded={expandedSections.details}
+            summary={selectedPartnerId ? form.name || 'Selected partner' : 'Create or update an external partner'}
+            title={selectedPartnerId ? 'Partner details' : 'New partner'}
+            onToggle={() => toggleSection('details')}
+          >
             <View style={styles.avatarRow}>
               <View style={styles.avatarFrame}>
                 {selectedAvatarUrl && !avatarFailed ? (
@@ -1022,25 +1098,45 @@ export default function AccountabilityScreen() {
             />
 
             <View style={styles.fieldGroup}>
-              <Text style={styles.inputLabel}>Timezone</Text>
-              <View style={styles.timeZoneGrid}>
-                {timeZones.map((timeZone) => (
-                  <Pressable
-                    key={timeZone.value}
-                    style={[styles.timeZoneOption, form.timeZone === timeZone.value && styles.activeTimeZoneOption]}
-                    onPress={() => updateField('timeZone', timeZone.value)}
-                  >
-                    <Text
-                      style={[
-                        styles.timeZoneOptionText,
-                        form.timeZone === timeZone.value && styles.activeTimeZoneOptionText,
-                      ]}
-                    >
-                      {timeZone.label}
-                    </Text>
-                  </Pressable>
-                ))}
+              <View style={styles.timeZoneHeaderRow}>
+                <View style={styles.timeZoneHeaderCopy}>
+                  <Text style={styles.inputLabel}>Timezone</Text>
+                  <Text style={styles.timeZoneSummary}>{selectedTimeZoneLabel}</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showTimeZoneOptions }}
+                  style={styles.timeZoneToggle}
+                  onPress={() => setShowTimeZoneOptions((isVisible) => !isVisible)}
+                >
+                  <MaterialIcons
+                    color="#38635D"
+                    name={showTimeZoneOptions ? 'expand-less' : 'expand-more'}
+                    size={20}
+                  />
+                  <Text style={styles.timeZoneToggleText}>{showTimeZoneOptions ? 'Hide' : 'Show'}</Text>
+                </Pressable>
               </View>
+              {showTimeZoneOptions ? (
+                <View style={styles.timeZoneGrid}>
+                  {timeZones.map((timeZone) => (
+                    <Pressable
+                      key={timeZone.value}
+                      style={[styles.timeZoneOption, form.timeZone === timeZone.value && styles.activeTimeZoneOption]}
+                      onPress={() => updateField('timeZone', timeZone.value)}
+                    >
+                      <Text
+                        style={[
+                          styles.timeZoneOptionText,
+                          form.timeZone === timeZone.value && styles.activeTimeZoneOptionText,
+                        ]}
+                      >
+                        {timeZone.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
             </View>
 
             <Field
@@ -1054,10 +1150,49 @@ export default function AccountabilityScreen() {
             <Pressable disabled={saving} style={[styles.button, saving && styles.disabledButton]} onPress={() => savePartner()}>
               <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save partner'}</Text>
             </Pressable>
-          </View>
+          </CollapsibleSection>
 
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Completed check-ins</Text>
+          <CollapsibleSection
+            expanded={expandedSections.replies}
+            summary={`${partnerMessages.length} web replies`}
+            title="Partner replies"
+            onToggle={() => toggleSection('replies')}
+          >
+            <Text style={styles.mutedText}>
+              Replies sent from check-in links appear here for the selected partner.
+            </Text>
+
+            {partnerMessages.length ? (
+              <View style={styles.historyList}>
+                {partnerMessages.map((partnerMessage) => (
+                  <View key={partnerMessage.id} style={styles.historyItem}>
+                    <View style={styles.historyCopy}>
+                      <Text style={styles.historyTitle}>{formatDateTime(partnerMessage.created_at)}</Text>
+                      <Text style={styles.historyPartner}>
+                        from {getPartnerName(partnerMessage.partner_id, partners, form.name)}
+                      </Text>
+                      <Text style={styles.historyNote}>{partnerMessage.body}</Text>
+                    </View>
+                    <HistoryPartnerAvatar
+                      fallbackName={form.name}
+                      partner={partners.find((partner) => partner.id === partnerMessage.partner_id) ?? null}
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.mutedText}>
+                {selectedPartnerId ? 'No partner replies yet.' : 'Select a partner to view replies.'}
+              </Text>
+            )}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            expanded={expandedSections.history}
+            summary={`${checkIns.length} recent check-ins`}
+            title="Completed check-ins"
+            onToggle={() => toggleSection('history')}
+          >
             <Text style={styles.mutedText}>
               Mark a real check-in after it happens and keep a simple history that names the partner.
             </Text>
@@ -1093,45 +1228,7 @@ export default function AccountabilityScreen() {
                 {selectedPartnerId ? 'No completed check-ins yet.' : 'Save or select a partner to start history.'}
               </Text>
             )}
-          </View>
-
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Partner replies</Text>
-            <Text style={styles.mutedText}>
-              Replies sent from check-in links appear here for the selected partner.
-            </Text>
-
-            {partnerMessages.length ? (
-              <View style={styles.historyList}>
-                {partnerMessages.map((partnerMessage) => (
-                  <View key={partnerMessage.id} style={styles.historyItem}>
-                    <View style={styles.historyCopy}>
-                      <Text style={styles.historyTitle}>{formatDateTime(partnerMessage.created_at)}</Text>
-                      <Text style={styles.historyPartner}>
-                        from {getPartnerName(partnerMessage.partner_id, partners, form.name)}
-                      </Text>
-                      <Text style={styles.historyNote}>{partnerMessage.body}</Text>
-                    </View>
-                    <HistoryPartnerAvatar
-                      fallbackName={form.name}
-                      partner={partners.find((partner) => partner.id === partnerMessage.partner_id) ?? null}
-                    />
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.mutedText}>
-                {selectedPartnerId ? 'No partner replies yet.' : 'Select a partner to view replies.'}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Partner Dallas account</Text>
-            <Text style={styles.mutedText}>
-              Later, partners will be able to create their own Dallas account from an invite. For now, SMS invite keeps them outside the app.
-            </Text>
-          </View>
+          </CollapsibleSection>
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
@@ -1174,6 +1271,43 @@ function Field({
         textAlignVertical={multiline ? 'top' : 'center'}
         value={value}
       />
+    </View>
+  );
+}
+
+function CollapsibleSection({
+  action,
+  children,
+  expanded,
+  onToggle,
+  summary,
+  title,
+}: {
+  action?: ReactNode;
+  children: ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  summary?: string;
+  title: string;
+}) {
+  return (
+    <View style={styles.panel}>
+      <View style={styles.collapsibleHeaderRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          style={styles.collapsibleHeaderButton}
+          onPress={onToggle}
+        >
+          <MaterialIcons color="#38635D" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
+          <View style={styles.collapsibleTitleCopy}>
+            <Text style={styles.panelTitle}>{title}</Text>
+            {summary ? <Text style={styles.collapsibleSummary}>{summary}</Text> : null}
+          </View>
+        </Pressable>
+        {action}
+      </View>
+      {expanded ? <View style={styles.collapsibleBody}>{children}</View> : null}
     </View>
   );
 }
@@ -1329,6 +1463,10 @@ function getLocalTime(timeZone: string | null) {
   }
 }
 
+function getTimeZoneLabel(value: string) {
+  return timeZones.find((timeZone) => timeZone.value === value)?.label ?? 'Choose a timezone';
+}
+
 function getFallbackUserDisplayName(metadata: Record<string, unknown>, email: string | undefined) {
   return getMetadataValue(metadata.preferred_name) || email || 'Dallas user';
 }
@@ -1393,9 +1531,11 @@ async function cancelCheckInNotification(notificationId: string | null) {
 async function scheduleCheckInNotification({
   partnerName,
   scheduledAt,
+  userId,
 }: {
   partnerName: string;
   scheduledAt: string;
+  userId: string;
 }) {
   const scheduledDate = new Date(scheduledAt);
   const secondsUntilDue = Math.floor((scheduledDate.getTime() - Date.now()) / 1000);
@@ -1404,25 +1544,34 @@ async function scheduleCheckInNotification({
     return null;
   }
 
-  const permissions = await Notifications.getPermissionsAsync();
-  let finalStatus = permissions.status;
+  await ensureNotificationChannelAsync();
 
-  if (finalStatus !== 'granted') {
+  const permissions = await Notifications.getPermissionsAsync();
+  let permissionGranted = hasGrantedNotificationPermission(permissions);
+
+  if (!permissionGranted) {
     const requestedPermissions = await Notifications.requestPermissionsAsync();
-    finalStatus = requestedPermissions.status;
+    permissionGranted = hasGrantedNotificationPermission(requestedPermissions);
   }
 
-  if (finalStatus !== 'granted') {
+  if (!permissionGranted) {
     return null;
   }
+
+  await syncGrantedPushTokenAsync(userId).catch(() => null);
 
   return Notifications.scheduleNotificationAsync({
     content: {
       body: `Your planned check-in with ${partnerName} is due now.`,
-      sound: false,
+      data: {
+        route: '/accountability',
+        type: 'planned_check_in',
+      },
+      sound: 'default',
       title: 'Dallas check-in due',
     },
     trigger: {
+      channelId: notificationChannelId,
       seconds: secondsUntilDue,
       type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
     },
@@ -1481,6 +1630,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  collapsibleHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  collapsibleHeaderButton: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 42,
+  },
+  collapsibleTitleCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  collapsibleSummary: {
+    color: '#697570',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  collapsibleBody: {
+    gap: 14,
   },
   panelTitle: {
     color: '#17211F',
@@ -1705,6 +1879,37 @@ const styles = StyleSheet.create({
     minHeight: 104,
     paddingTop: 12,
   },
+  timeZoneHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  timeZoneHeaderCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  timeZoneSummary: {
+    color: '#17211F',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  timeZoneToggle: {
+    alignItems: 'center',
+    backgroundColor: '#F9F7F0',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 3,
+    minHeight: 40,
+    paddingHorizontal: 10,
+  },
+  timeZoneToggleText: {
+    color: '#38635D',
+    fontSize: 13,
+    fontWeight: '900',
+  },
   timeZoneGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1810,6 +2015,47 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 17,
     textAlign: 'center',
+  },
+  codePanel: {
+    backgroundColor: '#F9F7F0',
+    borderColor: '#DED7C9',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+  },
+  codeHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  codeCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  codeText: {
+    color: '#17211F',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  copyButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#38635D',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 10,
+  },
+  copyButtonText: {
+    color: '#38635D',
+    fontSize: 13,
+    fontWeight: '900',
   },
   historyList: {
     gap: 8,

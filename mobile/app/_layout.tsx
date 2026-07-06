@@ -1,6 +1,8 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
+import '../src/lib/notifications';
+
 export default function RootLayout() {
   return (
     <>

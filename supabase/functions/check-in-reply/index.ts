@@ -126,6 +126,8 @@ async function postReply(
     return jsonResponse({ error: updateError.message }, 500);
   }
 
+  await sendReplyNotification(adminClient, thread.user_id, thread.partner_id);
+
   return jsonResponse({ ok: true });
 }
 
@@ -167,6 +169,71 @@ async function resolveUserDisplayName(
   const profileDisplayName = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
 
   return profileDisplayName || 'the Dallas user';
+}
+
+async function sendReplyNotification(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+  partnerId: string,
+) {
+  const [{ data: tokens, error: tokensError }, { data: partner }] = await Promise.all([
+    adminClient
+      .from('push_tokens')
+      .select('token')
+      .eq('user_id', userId),
+    adminClient
+      .from('accountability_partners')
+      .select('name')
+      .eq('id', partnerId)
+      .maybeSingle(),
+  ]);
+
+  if (tokensError) {
+    console.error('Failed to load push tokens', tokensError.message);
+    return;
+  }
+
+  const pushTokens = (tokens ?? [])
+    .map((row) => row.token)
+    .filter((token): token is string => {
+      return (
+        typeof token === 'string' &&
+        (token.startsWith('ExponentPushToken[') || token.startsWith('ExpoPushToken['))
+      );
+    });
+
+  if (!pushTokens.length) {
+    return;
+  }
+
+  const partnerName = typeof partner?.name === 'string' && partner.name.trim()
+    ? partner.name.trim()
+    : 'Your accountability partner';
+
+  const response = await fetch('https://exp.host/--/api/v2/push/send', {
+    body: JSON.stringify(
+      pushTokens.map((to) => ({
+        body: `${partnerName} replied to your check-in.`,
+        channelId: 'recovery-reminders',
+        data: {
+          route: '/accountability',
+          type: 'check_in_reply',
+        },
+        sound: 'default',
+        title: 'New check-in reply',
+        to,
+      })),
+    ),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    console.error('Failed to send check-in reply push', await response.text());
+  }
 }
 
 function jsonResponse(body: unknown, status = 200) {

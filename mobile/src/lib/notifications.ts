@@ -5,6 +5,19 @@ import { Platform } from 'react-native';
 
 import { supabase } from './supabase';
 
+export const notificationChannelId = 'recovery-reminders';
+
+type NotificationPermissionResult = Notifications.NotificationPermissionsStatus & {
+  granted?: boolean;
+  status?: string;
+};
+
+function hasGrantedNotificationPermission(permissions: Notifications.NotificationPermissionsStatus) {
+  const permissionResult = permissions as NotificationPermissionResult;
+
+  return permissionResult.granted ?? permissionResult.status === 'granted';
+}
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: false,
@@ -19,33 +32,32 @@ export async function registerForPushNotificationsAsync() {
     throw new Error('Push notifications need a physical device.');
   }
 
+  await ensureNotificationChannelAsync();
+
+  const existingPermission = await Notifications.getPermissionsAsync();
+  let permissionGranted = hasGrantedNotificationPermission(existingPermission);
+
+  if (!permissionGranted) {
+    const requestedPermission = await Notifications.requestPermissionsAsync();
+    permissionGranted = hasGrantedNotificationPermission(requestedPermission);
+  }
+
+  if (!permissionGranted) {
+    return null;
+  }
+
+  const token = await getExpoPushToken();
+
+  return token.data;
+}
+
+export async function ensureNotificationChannelAsync() {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('recovery-reminders', {
+    await Notifications.setNotificationChannelAsync(notificationChannelId, {
       name: 'Recovery reminders',
       importance: Notifications.AndroidImportance.DEFAULT,
     });
   }
-
-  const existingPermission = await Notifications.getPermissionsAsync();
-  let finalStatus = existingPermission.status;
-
-  if (existingPermission.status !== 'granted') {
-    const requestedPermission = await Notifications.requestPermissionsAsync();
-    finalStatus = requestedPermission.status;
-  }
-
-  if (finalStatus !== 'granted') {
-    return null;
-  }
-
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-
-  const token = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
-
-  return token.data;
 }
 
 export async function registerAndSavePushTokenAsync(userId: string) {
@@ -55,6 +67,38 @@ export async function registerAndSavePushTokenAsync(userId: string) {
     return null;
   }
 
+  await savePushTokenAsync(userId, token);
+
+  return token;
+}
+
+export async function syncGrantedPushTokenAsync(userId: string) {
+  await ensureNotificationChannelAsync();
+
+  if (!Device.isDevice) {
+    return null;
+  }
+
+  const permissions = await Notifications.getPermissionsAsync();
+
+  if (!hasGrantedNotificationPermission(permissions)) {
+    return null;
+  }
+
+  const token = await getExpoPushToken();
+  await savePushTokenAsync(userId, token.data);
+
+  return token.data;
+}
+
+async function getExpoPushToken() {
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+
+  return Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+}
+
+async function savePushTokenAsync(userId: string, token: string) {
   const { error } = await supabase.from('push_tokens').upsert(
     {
       last_seen_at: new Date().toISOString(),
@@ -68,6 +112,4 @@ export async function registerAndSavePushTokenAsync(userId: string) {
   if (error) {
     throw error;
   }
-
-  return token;
 }

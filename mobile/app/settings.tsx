@@ -20,6 +20,26 @@ import { clearSupabaseLocalSession, isSupabaseConfigured, supabase } from '../sr
 const importantInfoStorageKey = 'dallas.important_info_acknowledged';
 const openAiApiKeyStorageKey = 'dallas.openai_api_key';
 
+type NotificationPermissionResult = Notifications.NotificationPermissionsStatus & {
+  canAskAgain?: boolean;
+  granted?: boolean;
+  status?: string;
+};
+
+function getPermissionStatusLabel(permissions: Notifications.NotificationPermissionsStatus) {
+  const permissionResult = permissions as NotificationPermissionResult;
+
+  if (permissionResult.granted ?? permissionResult.status === 'granted') {
+    return 'granted';
+  }
+
+  return permissionResult.canAskAgain ? 'undetermined' : 'denied';
+}
+
+function hasGrantedNotificationPermission(permissions: Notifications.NotificationPermissionsStatus) {
+  return getPermissionStatusLabel(permissions) === 'granted';
+}
+
 export default function SettingsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -54,7 +74,7 @@ export default function SettingsScreen() {
       }
 
       setOpenAiKeySaved(Boolean(savedOpenAiApiKey));
-      setPermissionStatus(permissions.status);
+      setPermissionStatus(getPermissionStatusLabel(permissions));
       setScheduledCount(scheduledNotifications.length);
       setLoading(false);
     }
@@ -70,7 +90,7 @@ export default function SettingsScreen() {
     const permissions = await Notifications.getPermissionsAsync();
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
 
-    setPermissionStatus(permissions.status);
+    setPermissionStatus(getPermissionStatusLabel(permissions));
     setScheduledCount(scheduledNotifications.length);
   }
 
@@ -110,16 +130,18 @@ export default function SettingsScreen() {
     setMessage('');
 
     const permissions = await Notifications.getPermissionsAsync();
-    let finalStatus = permissions.status;
+    let permissionGranted = hasGrantedNotificationPermission(permissions);
+    let permissionStatusLabel = getPermissionStatusLabel(permissions);
 
-    if (finalStatus !== 'granted') {
+    if (!permissionGranted) {
       const requestedPermissions = await Notifications.requestPermissionsAsync();
-      finalStatus = requestedPermissions.status;
+      permissionGranted = hasGrantedNotificationPermission(requestedPermissions);
+      permissionStatusLabel = getPermissionStatusLabel(requestedPermissions);
     }
 
-    setPermissionStatus(finalStatus);
+    setPermissionStatus(permissionStatusLabel);
 
-    if (finalStatus !== 'granted') {
+    if (!permissionGranted) {
       setTestingNotifications(false);
       setMessage('Allow notifications before sending a test.');
       return;
