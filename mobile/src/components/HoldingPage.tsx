@@ -40,7 +40,7 @@ export function HoldingPage({ description, eyebrow, nextItems, title }: HoldingP
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   container: {
     flex: 1,
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   itemMarker: {
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 4,
     height: 8,
     width: 8,
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,

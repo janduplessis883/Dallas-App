@@ -20,7 +20,7 @@ function hasGrantedNotificationPermission(permissions: Notifications.Notificatio
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldPlaySound: false,
+    shouldPlaySound: true,
     shouldSetBadge: false,
     shouldShowBanner: true,
     shouldShowList: true,
@@ -55,7 +55,10 @@ export async function ensureNotificationChannelAsync() {
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync(notificationChannelId, {
       name: 'Recovery reminders',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: Notifications.AndroidImportance.HIGH,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      sound: 'default',
+      vibrationPattern: [0, 500, 250, 500],
     });
   }
 }

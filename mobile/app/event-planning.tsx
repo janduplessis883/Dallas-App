@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -34,20 +35,24 @@ type EventPlanField =
   | 'reminder_3'
   | 'anchor_1_name'
   | 'anchor_1_when'
+  | 'anchor_1_questions'
+  | 'anchor_1_response'
   | 'anchor_2_name'
   | 'anchor_2_when'
-  | 'questions_for_me'
-  | 'what_to_say'
+  | 'anchor_2_questions'
+  | 'anchor_2_response'
   | 'pre_arrival'
   | 'arrival_anchor'
+  | 'arrival_check_in_time'
   | 'mid_body'
   | 'mid_need'
+  | 'mid_boundaries'
+  | 'mid_event_check_in_time'
   | 'the_line'
   | 'departure_decision'
   | 'call_who'
   | 'call_when'
   | 'call_what'
-  | 'decompression'
   | 'what_worked'
   | 'what_surprised'
   | 'what_change'
@@ -66,6 +71,7 @@ type EventPlanRow = EventPlanForm & {
 type EventPhoneReminder = {
   date: string;
   id: string;
+  kind?: 'arrival' | 'manual' | 'mid_event';
   message: string;
   notification_id: string | null;
   time: string;
@@ -75,6 +81,14 @@ type DallasBuddy = {
   avatar_path: string | null;
   connected_user_id: string | null;
   id: string;
+  mobile_number?: string | null;
+  name: string;
+  partner_kind?: 'external' | 'dallas_user';
+};
+
+type ExternalAnchor = {
+  id: string;
+  mobile_number: string | null;
   name: string;
 };
 
@@ -112,6 +126,7 @@ type SectionConfig = {
 };
 
 const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const defaultCheckInReplyUrl = 'https://dallas-app.onrender.com/check-in-reply/';
 
 const emptyPlan: EventPlanForm = {
   event_name: '',
@@ -128,20 +143,24 @@ const emptyPlan: EventPlanForm = {
   reminder_3: '',
   anchor_1_name: '',
   anchor_1_when: '',
+  anchor_1_questions: '',
+  anchor_1_response: '',
   anchor_2_name: '',
   anchor_2_when: '',
-  questions_for_me: '',
-  what_to_say: '',
+  anchor_2_questions: '',
+  anchor_2_response: '',
   pre_arrival: '',
   arrival_anchor: '',
+  arrival_check_in_time: '',
   mid_body: '',
   mid_need: '',
+  mid_boundaries: '',
+  mid_event_check_in_time: '',
   the_line: '',
   departure_decision: '',
   call_who: '',
   call_when: '',
   call_what: '',
-  decompression: '',
   what_worked: '',
   what_surprised: '',
   what_change: '',
@@ -192,17 +211,31 @@ const planSections: SectionConfig[] = [
     title: '2. The protection',
   },
   {
-    description: 'Identify the people who will know about this plan.',
+    description: 'Give each check-in person a clear role, time, question, and answer to listen for.',
     fields: [
+      { key: 'anchor_1_name', label: 'Arrival anchor person' },
+      { key: 'anchor_1_when', label: 'Arrival check-in time', placeholder: '19:30' },
       {
-        helper: 'Specific questions that get past surface answers.',
-        key: 'questions_for_me',
-        label: 'Questions they should ask me',
+        helper: 'One or two specific questions that get past surface answers.',
+        key: 'anchor_1_questions',
+        label: 'Questions they should ask at arrival',
         multiline: true,
       },
       {
-        key: 'what_to_say',
-        label: 'What I will say to them',
+        key: 'anchor_1_response',
+        label: 'My planned response or talking points',
+        multiline: true,
+      },
+      { key: 'anchor_2_name', label: 'Mid-event anchor person' },
+      { key: 'anchor_2_when', label: 'Mid-event check-in time', placeholder: '21:00' },
+      {
+        key: 'anchor_2_questions',
+        label: 'Questions they should ask mid-event',
+        multiline: true,
+      },
+      {
+        key: 'anchor_2_response',
+        label: 'My planned response or talking points',
         multiline: true,
       },
     ],
@@ -213,8 +246,21 @@ const planSections: SectionConfig[] = [
     fields: [
       { key: 'pre_arrival', label: 'Pre-arrival ritual', multiline: true },
       { key: 'arrival_anchor', label: 'Arrival anchor', multiline: true },
-      { key: 'mid_body', label: 'Mid-event: what I notice in my body', multiline: true },
+      {
+        helper: 'This schedules a priority phone reminder when you save.',
+        key: 'arrival_check_in_time',
+        label: 'Arrival reminder time',
+        placeholder: '19:30',
+      },
+      {
+        helper: 'This schedules a priority phone reminder when you save.',
+        key: 'mid_event_check_in_time',
+        label: 'Mid-event reminder time',
+        placeholder: '21:00',
+      },
+      { key: 'mid_body', label: 'Physical sensations I will check for', multiline: true },
       { key: 'mid_need', label: 'Mid-event: what I need right now', multiline: true },
+      { key: 'mid_boundaries', label: 'Boundaries I need to protect', multiline: true },
       { key: 'the_line', label: 'The line I will not cross', multiline: true },
     ],
     title: '4. During the event',
@@ -225,8 +271,7 @@ const planSections: SectionConfig[] = [
       { key: 'departure_decision', label: 'Pre-departure decision point', multiline: true },
       { key: 'call_who', label: 'The call I make: who' },
       { key: 'call_when', label: 'The call I make: when' },
-      { key: 'call_what', label: 'What I plan to say', multiline: true },
-      { key: 'decompression', label: 'Decompression in the first hour', multiline: true },
+      { key: 'call_what', label: 'Prepared phrase for asking for help', multiline: true },
     ],
     title: '5. The threshold',
   },
@@ -251,6 +296,7 @@ export default function EventPlanningScreen() {
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
   const [dallasBuddies, setDallasBuddies] = useState<DallasBuddy[]>([]);
   const [expandedBuddyId, setExpandedBuddyId] = useState('');
+  const [externalAnchors, setExternalAnchors] = useState<ExternalAnchor[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [plan, setPlan] = useState<EventPlanForm>(emptyPlan);
@@ -324,9 +370,8 @@ export default function EventPlanningScreen() {
   async function loadDallasBuddies(userId: string, mounted = true) {
     const { data, error } = await supabase
       .from('accountability_partners')
-      .select('avatar_path, connected_user_id, id, name')
+      .select('avatar_path, connected_user_id, id, mobile_number, name, partner_kind')
       .eq('user_id', userId)
-      .eq('partner_kind', 'dallas_user')
       .order('created_at', { ascending: false });
 
     if (!mounted) {
@@ -338,8 +383,19 @@ export default function EventPlanningScreen() {
       return;
     }
 
-    const nextBuddies = data ?? [];
+    const partners = data ?? [];
+    const nextBuddies = partners.filter((partner) => partner.partner_kind === 'dallas_user');
+
     setDallasBuddies(nextBuddies);
+    setExternalAnchors(
+      partners
+        .filter((partner) => partner.partner_kind !== 'dallas_user')
+        .map((partner) => ({
+          id: partner.id,
+          mobile_number: partner.mobile_number ?? null,
+          name: partner.name,
+        })),
+    );
     await loadBuddyProfiles(nextBuddies, mounted);
   }
 
@@ -415,7 +471,7 @@ export default function EventPlanningScreen() {
     let scheduledReminders: EventPhoneReminder[];
 
     try {
-      scheduledReminders = await schedulePhoneReminders(phoneReminders, plan.event_name.trim());
+      scheduledReminders = await schedulePhoneReminders(buildReminderSchedule(phoneReminders, plan), plan.event_name.trim());
     } catch (error) {
       setSaving(false);
       setMessage(error instanceof Error ? error.message : 'Could not schedule phone reminders.');
@@ -448,7 +504,7 @@ export default function EventPlanningScreen() {
     await loadPlanSummaries(session.user.id);
     setMessage(
       scheduledReminders.length
-        ? `Event plan saved. ${scheduledReminders.length} phone notification${scheduledReminders.length === 1 ? '' : 's'} scheduled.`
+        ? `Event plan saved. ${scheduledReminders.length} phone notification${scheduledReminders.length === 1 ? '' : 's'} scheduled, including priority arrival and mid-event reminders when set.`
         : 'Event plan saved.',
     );
   }
@@ -491,6 +547,7 @@ export default function EventPlanningScreen() {
       {
         date: plan.event_date || toDateValue(new Date()),
         id: createReminderId(),
+        kind: 'manual',
         message: '',
         notification_id: null,
         time: '18:00',
@@ -665,11 +722,79 @@ export default function EventPlanningScreen() {
     );
   }
 
+  async function handleTextExternalAnchor(anchor: ExternalAnchor) {
+    if (!anchor.mobile_number?.trim()) {
+      setMessage(`Add a mobile number for ${anchor.name} in Accountability before sending a text.`);
+      return;
+    }
+
+    const replyLink = await createExternalAnchorReplyLink(anchor);
+
+    if (!replyLink) {
+      return;
+    }
+
+    const messageBody = buildExternalAnchorMessage(anchor.name, plan, replyLink);
+
+    const separator = Platform.OS === 'ios' ? '&' : '?';
+    const smsUrl = `sms:${encodeURIComponent(anchor.mobile_number.trim())}${separator}body=${encodeURIComponent(messageBody)}`;
+    const supported = await Linking.canOpenURL(smsUrl);
+
+    if (!supported) {
+      setMessage('This device cannot open a prepared SMS message.');
+      return;
+    }
+
+    await Linking.openURL(smsUrl);
+    setMessage(`Prepared anchor text and online reply link for ${anchor.name}.`);
+  }
+
+  async function createExternalAnchorReplyLink(anchor: ExternalAnchor) {
+    if (!session) {
+      return '';
+    }
+
+    const preferredName = session.user.user_metadata?.preferred_name;
+    const userDisplayName = typeof preferredName === 'string' && preferredName.trim()
+      ? preferredName.trim()
+      : session.user.email || 'Dallas user';
+
+    const { data: thread, error: threadError } = await supabase
+      .from('accountability_check_in_threads')
+      .insert({
+        partner_id: anchor.id,
+        user_display_name: userDisplayName,
+        user_id: session.user.id,
+      })
+      .select('id, partner_token')
+      .single();
+
+    if (threadError) {
+      setMessage(threadError.message);
+      return '';
+    }
+
+    const { error: messageError } = await supabase.from('accountability_check_in_messages').insert({
+      body: `Event anchor invitation prepared for ${anchor.name || 'an external accountability partner'}.`,
+      partner_id: anchor.id,
+      sender_type: 'user',
+      thread_id: thread.id,
+      user_id: session.user.id,
+    });
+
+    if (messageError) {
+      setMessage(messageError.message);
+      return '';
+    }
+
+    return buildCheckInReplyUrl(thread.partner_token);
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#38635D" />
+          <ActivityIndicator color="#075A43" />
           <Text style={styles.loadingText}>Loading event plans...</Text>
         </View>
       </SafeAreaView>
@@ -933,6 +1058,40 @@ export default function EventPlanningScreen() {
                   ) : (
                     <Text style={styles.mutedText}>No Dallas App Buddies connected yet.</Text>
                   )}
+
+                  <Text style={styles.inputLabel}>External anchors</Text>
+                  <Text style={styles.helperText}>
+                    External contacts receive a prepared text message from your phone.
+                  </Text>
+
+                  {externalAnchors.length ? (
+                    <View style={styles.buddyList}>
+                      {externalAnchors.map((anchor) => (
+                        <View key={anchor.id} style={styles.buddyCard}>
+                          <View style={styles.buddyRow}>
+                            <View style={styles.buddyAvatar}>
+                              <Text style={styles.buddyAvatarText}>{getInitial(anchor.name)}</Text>
+                            </View>
+                            <View style={styles.buddyCopy}>
+                              <Text style={styles.buddyName}>{anchor.name || 'External anchor'}</Text>
+                              <Text style={styles.buddyMeta}>
+                                {anchor.mobile_number ? 'Text message anchor' : 'Add mobile number in Accountability'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Pressable
+                            disabled={!anchor.mobile_number}
+                            style={[styles.secondaryButton, !anchor.mobile_number && styles.disabledButton]}
+                            onPress={() => handleTextExternalAnchor(anchor)}
+                          >
+                            <Text style={styles.secondaryButtonText}>Prepare text + reply link</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.mutedText}>No external accountability contacts saved yet.</Text>
+                  )}
                 </View>
               ) : null}
 
@@ -950,9 +1109,9 @@ export default function EventPlanningScreen() {
                     </Pressable>
                   </View>
 
-                  {phoneReminders.length ? (
+                  {phoneReminders.filter(isManualReminder).length ? (
                     <View style={styles.reminderList}>
-                      {phoneReminders.map((reminder, index) => (
+                      {phoneReminders.filter(isManualReminder).map((reminder, index) => (
                         <View key={reminder.id} style={styles.reminderCard}>
                           <View style={styles.reminderCardHeader}>
                             <Text style={styles.reminderCardTitle}>Notification {index + 1}</Text>
@@ -1038,7 +1197,9 @@ export default function EventPlanningScreen() {
                       ))}
                     </View>
                   ) : (
-                    <Text style={styles.mutedText}>No phone notifications yet.</Text>
+                    <Text style={styles.mutedText}>
+                      Arrival and mid-event reminders are scheduled from the plan. Add extra personal reminders here.
+                    </Text>
                   )}
                 </View>
               ) : null}
@@ -1051,11 +1212,6 @@ export default function EventPlanningScreen() {
             <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save event plan'}</Text>
           </Pressable>
 
-          <Link href="/" asChild>
-            <Pressable style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Back home</Text>
-            </Pressable>
-          </Link>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -1076,6 +1232,93 @@ function trimPlan(plan: EventPlanForm) {
     nextPlan[fieldKey] = plan[fieldKey].trim();
     return nextPlan;
   }, {} as EventPlanForm);
+}
+
+function buildReminderSchedule(reminders: EventPhoneReminder[], plan: EventPlanForm) {
+  const existingArrivalReminder = reminders.find((reminder) => reminder.kind === 'arrival');
+  const existingMidEventReminder = reminders.find((reminder) => reminder.kind === 'mid_event');
+  const generatedReminders = [
+    buildPriorityReminder({
+      date: plan.event_date,
+      existingReminder: existingArrivalReminder,
+      id: 'arrival',
+      kind: 'arrival',
+      message:
+        plan.arrival_anchor.trim() ||
+        plan.anchor_1_questions.trim() ||
+        'Pause, arrive in yourself, and check in with your arrival anchor.',
+      time: plan.arrival_check_in_time || plan.anchor_1_when,
+    }),
+    buildPriorityReminder({
+      date: plan.event_date,
+      existingReminder: existingMidEventReminder,
+      id: 'mid-event',
+      kind: 'mid_event',
+      message:
+        plan.mid_need.trim() ||
+        plan.mid_body.trim() ||
+        plan.anchor_2_questions.trim() ||
+        'Check your body, your needs, and your boundaries before continuing.',
+      time: plan.mid_event_check_in_time || plan.anchor_2_when,
+    }),
+  ].filter(isEventPhoneReminder);
+
+  const staleGeneratedReminders = [existingArrivalReminder, existingMidEventReminder].filter(
+    (reminder): reminder is EventPhoneReminder =>
+      isEventPhoneReminder(reminder) &&
+      !generatedReminders.some((generatedReminder) => generatedReminder.id === reminder.id),
+  );
+
+  return [
+    ...reminders.filter(isManualReminder),
+    ...staleGeneratedReminders.map((reminder) => ({
+      ...reminder,
+      date: '',
+      message: '',
+      time: '',
+    })),
+    ...generatedReminders,
+  ];
+}
+
+function buildPriorityReminder({
+  date,
+  existingReminder,
+  id,
+  kind,
+  message,
+  time,
+}: {
+  date: string;
+  existingReminder?: EventPhoneReminder;
+  id: string;
+  kind: 'arrival' | 'mid_event';
+  message: string;
+  time: string;
+}): EventPhoneReminder | null {
+  const trimmedDate = date.trim();
+  const trimmedTime = time.trim();
+
+  if (!trimmedDate || !trimmedTime) {
+    return null;
+  }
+
+  return {
+    date: trimmedDate,
+    id,
+    kind,
+    message: message.trim(),
+    notification_id: existingReminder?.notification_id ?? null,
+    time: trimmedTime,
+  };
+}
+
+function isManualReminder(reminder: EventPhoneReminder) {
+  return !reminder.kind || reminder.kind === 'manual';
+}
+
+function isEventPhoneReminder(reminder: EventPhoneReminder | null | undefined): reminder is EventPhoneReminder {
+  return Boolean(reminder);
 }
 
 async function scheduleBuddyCheckInNotification({
@@ -1116,7 +1359,9 @@ async function scheduleBuddyCheckInNotification({
         route: '/dallas-app-buddies',
         type: 'event_buddy_check_in',
       },
+      interruptionLevel: 'timeSensitive',
       sound: 'default',
+      sticky: true,
       title: 'Dallas event check-in',
     },
     trigger: {
@@ -1188,10 +1433,21 @@ async function schedulePhoneReminders(reminders: EventPhoneReminder[], eventName
           body: reminder.message.trim(),
           data: {
             reminderId: reminder.id,
+            reminderKind: reminder.kind ?? 'manual',
             type: 'event_plan_reminder',
           },
-          sound: false,
-          title: eventName ? `${eventName} reminder` : 'Dallas event reminder',
+          interruptionLevel:
+            reminder.kind === 'arrival' || reminder.kind === 'mid_event' ? 'timeSensitive' : 'active',
+          sound: 'default',
+          sticky: reminder.kind === 'arrival' || reminder.kind === 'mid_event',
+          title:
+            reminder.kind === 'arrival'
+              ? 'Arrival check-in'
+              : reminder.kind === 'mid_event'
+                ? 'Mid-event check-in'
+                : eventName
+                  ? `${eventName} reminder`
+                  : 'Dallas event reminder',
         },
         trigger: {
           channelId: notificationChannelId,
@@ -1241,7 +1497,7 @@ function normalizePhoneReminders(value: unknown): EventPhoneReminder[] {
   }
 
   return value
-    .map((item) => {
+    .map((item): EventPhoneReminder | null => {
       if (!item || typeof item !== 'object') {
         return null;
       }
@@ -1251,12 +1507,16 @@ function normalizePhoneReminders(value: unknown): EventPhoneReminder[] {
       return {
         date: typeof reminder.date === 'string' ? reminder.date : '',
         id: typeof reminder.id === 'string' ? reminder.id : createReminderId(),
+        kind:
+          reminder.kind === 'arrival' || reminder.kind === 'mid_event' || reminder.kind === 'manual'
+            ? reminder.kind
+            : 'manual',
         message: typeof reminder.message === 'string' ? reminder.message : '',
         notification_id: typeof reminder.notification_id === 'string' ? reminder.notification_id : null,
         time: typeof reminder.time === 'string' ? reminder.time : '',
       };
     })
-    .filter((reminder): reminder is EventPhoneReminder => Boolean(reminder));
+    .filter(isEventPhoneReminder);
 }
 
 function parseReminderDateTime(dateValue: string, timeValue: string) {
@@ -1284,6 +1544,36 @@ function eventCheckInNote(eventName: string) {
   const trimmedEventName = eventName.trim();
 
   return trimmedEventName ? `Event check-in for ${trimmedEventName}` : null;
+}
+
+function buildExternalAnchorMessage(anchorName: string, plan: EventPlanForm, replyLink: string) {
+  const eventName = plan.event_name.trim() || 'an event';
+  const eventDate = plan.event_date.trim() ? ` on ${formatDateValue(plan.event_date.trim())}` : '';
+  const arrivalTime = plan.arrival_check_in_time.trim() || plan.anchor_1_when.trim();
+  const midEventTime = plan.mid_event_check_in_time.trim() || plan.anchor_2_when.trim();
+  const checkInTimes = [arrivalTime && `arrival check-in at ${arrivalTime}`, midEventTime && `mid-event check-in at ${midEventTime}`]
+    .filter(Boolean)
+    .join(' and ');
+  const questions = [plan.anchor_1_questions.trim(), plan.anchor_2_questions.trim()].filter(Boolean).join(' / ');
+  const helpPhrase = plan.call_what.trim();
+
+  return [
+    `Hi ${anchorName || ''}`.trim() + ', I am naming you as an anchor for ' + eventName + eventDate + '.',
+    checkInTimes ? `Could you check in with me for the ${checkInTimes}?` : 'Could you check in with me during it?',
+    questions ? `Helpful question(s): ${questions}` : '',
+    helpPhrase ? `If I ask for help, this is the phrase I am preparing: "${helpPhrase}"` : '',
+    `Reply online here: ${replyLink}`,
+    'Thank you for helping me stay connected to my plan.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function buildCheckInReplyUrl(token: string) {
+  const configuredUrl = process.env.EXPO_PUBLIC_CHECK_IN_REPLY_URL ?? defaultCheckInReplyUrl;
+  const separator = configuredUrl.includes('?') ? '&' : '?';
+
+  return `${configuredUrl}${separator}token=${encodeURIComponent(token)}`;
 }
 
 function formatHumanDate(value: string) {
@@ -1451,7 +1741,7 @@ function toDateValue(value: Date) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   keyboardArea: {
     flex: 1,
@@ -1471,7 +1761,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -1490,7 +1780,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
@@ -1517,14 +1807,14 @@ const styles = StyleSheet.create({
   },
   savedPlan: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 3,
     padding: 12,
   },
   activeSavedPlan: {
-    borderColor: '#38635D',
+    borderColor: '#075A43',
   },
   savedPlanTitle: {
     color: '#17211F',
@@ -1544,7 +1834,7 @@ const styles = StyleSheet.create({
   },
   buddyCard: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'hidden',
@@ -1569,7 +1859,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   buddyAvatarText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 15,
     fontWeight: '900',
   },
@@ -1588,14 +1878,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   buddyChevron: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 20,
     fontWeight: '900',
     minWidth: 22,
     textAlign: 'center',
   },
   buddyExpanded: {
-    borderTopColor: '#DED7C9',
+    borderTopColor: '#E3E1DB',
     borderTopWidth: 1,
     gap: 9,
     padding: 10,
@@ -1615,7 +1905,7 @@ const styles = StyleSheet.create({
   },
   reminderCard: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 9,
@@ -1638,7 +1928,7 @@ const styles = StyleSheet.create({
   },
   pickerPanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 10,
@@ -1652,7 +1942,7 @@ const styles = StyleSheet.create({
   },
   stepperButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     height: 36,
     justifyContent: 'center',
@@ -1689,7 +1979,7 @@ const styles = StyleSheet.create({
   quickDateButton: {
     alignItems: 'center',
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1699,7 +1989,7 @@ const styles = StyleSheet.create({
   },
   activeQuickDateButton: {
     backgroundColor: '#E7EFEC',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
   },
   quickDateButtonText: {
     color: '#4F5D58',
@@ -1709,7 +1999,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   activeQuickDateButtonText: {
-    color: '#38635D',
+    color: '#075A43',
   },
   inputLabel: {
     color: '#697570',
@@ -1723,7 +2013,7 @@ const styles = StyleSheet.create({
   },
   datePickerButton: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1741,7 +2031,7 @@ const styles = StyleSheet.create({
   },
   calendarPanel: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -1761,7 +2051,7 @@ const styles = StyleSheet.create({
     width: 36,
   },
   calendarNavText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 18,
     fontWeight: '900',
   },
@@ -1789,7 +2079,7 @@ const styles = StyleSheet.create({
     width: `${100 / 7}%`,
   },
   selectedCalendarDay: {
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
   },
   calendarDayText: {
@@ -1802,7 +2092,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     color: '#17211F',
@@ -1816,7 +2106,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1829,7 +2119,7 @@ const styles = StyleSheet.create({
   },
   smallButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 36,
@@ -1842,7 +2132,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1850,7 +2140,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 16,
     fontWeight: '900',
   },

@@ -36,13 +36,13 @@ type HomeProfile = {
 
 const homeLinks = [
   {
-    description: 'Goals, triggers, coping actions, and support resources.',
+    description: 'Goals, commitments, and support resources.',
     href: '/recovery-plan',
     icon: 'flag',
     label: 'Recovery plan',
   },
   {
-    description: 'Short and long vision, audio reading, and AI rewrite.',
+    description: 'Store and revisit the existing vision.',
     href: '/prophetic-vision',
     icon: 'auto-awesome',
     label: 'Prophetic Vision',
@@ -72,6 +72,12 @@ const homeLinks = [
     label: 'Event planning',
   },
   {
+    description: 'Plan weekends, days off, being alone, travel, or other predictable risk windows.',
+    href: '/danger-zone-planning',
+    icon: 'warning',
+    label: 'Danger Zone Planner',
+  },
+  {
     description: 'Notification schedules and recovery prompts.',
     href: '/reminders',
     icon: 'notifications',
@@ -90,6 +96,14 @@ const homeLinks = [
     label: 'Settings',
   },
 ] as const;
+
+const primaryHomeHrefs = new Set([
+  '/recovery-plan',
+  '/accountability',
+  '/event-planning',
+  '/danger-zone-planning',
+  '/reminders',
+]);
 
 function getAvatarUrl(session: Session | null) {
   const avatarUrl = session?.user.user_metadata?.avatar_url;
@@ -128,6 +142,7 @@ export default function HomeScreen() {
   const homeCoverUrl = profile?.home_cover_image_path
     ? getPublicHomeCoverUrl(profile.home_cover_image_path)
     : '';
+  const primaryHomeLinks = homeLinks.filter((item) => primaryHomeHrefs.has(item.href));
 
   useEffect(() => {
     let mounted = true;
@@ -409,7 +424,7 @@ export default function HomeScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.loadingPanel}>
-          <ActivityIndicator color="#38635D" />
+          <ActivityIndicator color="#075A43" />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
@@ -451,8 +466,8 @@ export default function HomeScreen() {
             marker="2"
             title="What Dallas can help with"
             items={[
-              'Organising recovery plans, event plans, reminders, and personal commitments.',
-              'Capturing reflective writing, prophetic vision notes, audio, and accountability check-ins.',
+              'Organising event plans, danger-zone plans, reminders, and personal commitments.',
+              'Capturing reflective writing, stored prophetic vision notes, audio, and accountability check-ins.',
               'Supporting motivation and structure through AI-assisted rewriting and prompts.',
             ]}
           />
@@ -489,11 +504,19 @@ export default function HomeScreen() {
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {sessionLoading ? (
           <View style={styles.loadingPanel}>
-            <ActivityIndicator color="#38635D" />
+            <ActivityIndicator color="#075A43" />
             <Text style={styles.loadingText}>Checking session...</Text>
           </View>
         ) : session ? (
           <>
+            <View style={styles.brandHeader}>
+              <Image source={loginLogo} style={styles.brandLogo} />
+              <View style={styles.brandCopy}>
+                <Text style={styles.brandName}>Dallas</Text>
+                <Text style={styles.brandTagline}>Recovery planning</Text>
+              </View>
+            </View>
+
             {homeCoverUrl ? (
               <ImageBackground
                 source={{ uri: homeCoverUrl }}
@@ -501,65 +524,33 @@ export default function HomeScreen() {
                 imageStyle={styles.dashboardHeroImage}
               >
                 <View style={styles.dashboardHeroOverlay}>
-                  <View style={styles.heroTopRow}>
-                    <View style={styles.avatarFrame}>
-                      {avatarUrl && !avatarFailed ? (
-                        <Image
-                          source={{ uri: avatarUrl }}
-                          style={styles.avatarImage}
-                          onError={() => setAvatarFailed(true)}
-                        />
-                      ) : (
-                        <Text style={styles.avatarInitial}>
-                          {getInitial(preferredNameFromSession, session.user.email)}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={styles.heroCopy}>
-                      <Text style={styles.heroEyebrow}>Dallas</Text>
-                      <Text style={styles.heroMeta}>{session.user.email ?? 'Signed in'}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.heroTitle}>
-                    {preferredNameFromSession ? `Welcome, ${preferredNameFromSession}` : 'Welcome'}
-                  </Text>
-                  <Text style={styles.heroSubtitle}>Choose a recovery practice for today.</Text>
+                  <HeroContent
+                    avatarFailed={avatarFailed}
+                    avatarUrl={avatarUrl}
+                    email={session.user.email}
+                    name={preferredNameFromSession}
+                    onAvatarFailed={() => setAvatarFailed(true)}
+                  />
                 </View>
               </ImageBackground>
             ) : (
               <View style={styles.dashboardHero}>
-                <View style={styles.heroTopRow}>
-                  <View style={styles.avatarFrame}>
-                    {avatarUrl && !avatarFailed ? (
-                      <Image
-                        source={{ uri: avatarUrl }}
-                        style={styles.avatarImage}
-                        onError={() => setAvatarFailed(true)}
-                      />
-                    ) : (
-                      <Text style={styles.avatarInitial}>
-                        {getInitial(preferredNameFromSession, session.user.email)}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.heroCopy}>
-                    <Text style={styles.heroEyebrow}>Dallas</Text>
-                    <Text style={styles.heroMeta}>{session.user.email ?? 'Signed in'}</Text>
-                  </View>
-                </View>
-                <Text style={styles.heroTitle}>
-                  {preferredNameFromSession ? `Welcome, ${preferredNameFromSession}` : 'Welcome'}
-                </Text>
-                <Text style={styles.heroSubtitle}>Choose a recovery practice for today.</Text>
+                <HeroContent
+                  avatarFailed={avatarFailed}
+                  avatarUrl={avatarUrl}
+                  email={session.user.email}
+                  name={preferredNameFromSession}
+                  onAvatarFailed={() => setAvatarFailed(true)}
+                />
               </View>
             )}
 
             <View style={styles.homeGrid}>
-              {homeLinks.map((item) => (
+              {primaryHomeLinks.map((item) => (
                 <Link key={item.href} href={item.href} asChild>
                   <Pressable style={styles.homeLink}>
-                    <View style={styles.homeLinkIcon}>
-                      <MaterialIcons color="#38635D" name={item.icon} size={21} />
+                    <View style={[styles.homeLinkIcon, { backgroundColor: getHomeLinkAccent(item.href).surface }]}>
+                      <MaterialIcons color={getHomeLinkAccent(item.href).color} name={item.icon} size={21} />
                     </View>
                     <View style={styles.homeLinkCopy}>
                       <View style={styles.homeLinkTitleRow}>
@@ -581,7 +572,7 @@ export default function HomeScreen() {
                       </View>
                       <Text style={styles.homeLinkDescription}>{item.description}</Text>
                     </View>
-                    <Text style={styles.homeLinkArrow}>{'>'}</Text>
+                    <Text style={[styles.homeLinkArrow, { color: getHomeLinkAccent(item.href).color }]}>{'>'}</Text>
                   </Pressable>
                 </Link>
               ))}
@@ -825,12 +816,60 @@ function getInitial(displayName: string, email: string | undefined) {
   return (displayName || email || 'D').trim().charAt(0).toUpperCase();
 }
 
+function getHomeLinkAccent(href: string) {
+  switch (href) {
+    case '/accountability':
+      return { color: '#007C78', surface: '#DFF3F0' };
+    case '/event-planning':
+      return { color: '#806400', surface: '#FFF3B8' };
+    case '/danger-zone-planning':
+      return { color: '#B40B35', surface: '#F8E3ED' };
+    case '/reminders':
+      return { color: '#B51E66', surface: '#F8E3ED' };
+    default:
+      return { color: '#075A43', surface: '#E6F1EA' };
+  }
+}
+
 function StatusRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
       <Text style={styles.rowValue}>{value}</Text>
     </View>
+  );
+}
+
+function HeroContent({
+  avatarFailed,
+  avatarUrl,
+  email,
+  name,
+  onAvatarFailed,
+}: {
+  avatarFailed: boolean;
+  avatarUrl: string;
+  email: string | undefined;
+  name: string;
+  onAvatarFailed: () => void;
+}) {
+  return (
+    <>
+      <View style={styles.heroTopRow}>
+        <View style={styles.heroIconBadge}>
+          <MaterialIcons color="#FFFFFF" name="eco" size={24} />
+        </View>
+        <View style={styles.avatarFrame}>
+          {avatarUrl && !avatarFailed ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} onError={onAvatarFailed} />
+          ) : (
+            <Text style={styles.avatarInitial}>{getInitial(name, email)}</Text>
+          )}
+        </View>
+      </View>
+      <Text style={styles.heroTitle}>Stay prepared. Stay connected.</Text>
+      <Text style={styles.heroSubtitle}>Your plan. Your people. Your path.</Text>
+    </>
   );
 }
 
@@ -860,7 +899,7 @@ function getConfiguredUrl(value: string | undefined, fallback: string) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   keyboardArea: {
     flex: 1,
@@ -871,8 +910,36 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 36,
   },
+  brandHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'center',
+    paddingTop: 4,
+  },
+  brandLogo: {
+    height: 54,
+    resizeMode: 'contain',
+    width: 54,
+  },
+  brandCopy: {
+    gap: 0,
+  },
+  brandName: {
+    color: '#075A43',
+    fontSize: 38,
+    fontWeight: '900',
+    lineHeight: 42,
+  },
+  brandTagline: {
+    color: '#007C78',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0,
+    textTransform: 'uppercase',
+  },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -923,7 +990,7 @@ const styles = StyleSheet.create({
   },
   infoMarker: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 13,
     height: 26,
     justifyContent: 'center',
@@ -945,7 +1012,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   infoBullet: {
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 4,
     height: 8,
     marginTop: 7,
@@ -959,7 +1026,7 @@ const styles = StyleSheet.create({
   },
   responsibilityPanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
@@ -983,44 +1050,55 @@ const styles = StyleSheet.create({
     width: 132,
   },
   dashboardHero: {
-    backgroundColor: '#17211F',
+    backgroundColor: '#E6F1EA',
     borderRadius: 8,
     gap: 16,
-    minHeight: 230,
+    minHeight: 224,
     overflow: 'hidden',
-    padding: 20,
+    padding: 22,
   },
   dashboardHeroImage: {
     borderRadius: 8,
   },
   dashboardHeroOverlay: {
-    backgroundColor: 'rgba(18, 31, 28, 0.66)',
+    backgroundColor: 'rgba(255, 255, 255, 0.76)',
     flex: 1,
     gap: 16,
-    margin: -20,
-    padding: 20,
+    margin: -22,
+    padding: 22,
   },
   heroTopRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
+    justifyContent: 'space-between',
+  },
+  heroIconBadge: {
+    alignItems: 'center',
+    backgroundColor: '#007C78',
+    borderRadius: 26,
+    height: 52,
+    justifyContent: 'center',
+    width: 52,
   },
   avatarFrame: {
     alignItems: 'center',
-    backgroundColor: '#F7F3EA',
-    borderRadius: 28,
-    height: 56,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#DCD4C4',
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 48,
     justifyContent: 'center',
     overflow: 'hidden',
-    width: 56,
+    width: 48,
   },
   avatarImage: {
-    height: 56,
-    width: 56,
+    height: 48,
+    width: 48,
   },
   avatarInitial: {
-    color: '#38635D',
-    fontSize: 22,
+    color: '#075A43',
+    fontSize: 19,
     fontWeight: '900',
   },
   heroCopy: {
@@ -1040,61 +1118,62 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 34,
+    color: '#075A43',
+    fontSize: 30,
     fontWeight: '900',
-    lineHeight: 39,
+    lineHeight: 36,
+    maxWidth: 280,
   },
   heroSubtitle: {
-    color: '#F7F3EA',
+    color: '#2F3E39',
     fontSize: 16,
     lineHeight: 23,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     marginTop: 10,
   },
   authPanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
     padding: 16,
   },
   homeGrid: {
-    gap: 10,
+    gap: 12,
   },
   homeLink: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3DCCA',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-    minHeight: 82,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: 14,
+    minHeight: 90,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   homeLinkIcon: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
-    borderRadius: 18,
-    height: 36,
+    backgroundColor: '#EEF3E9',
+    borderRadius: 8,
+    height: 56,
     justifyContent: 'center',
-    width: 36,
+    width: 56,
   },
   homeLinkCopy: {
     flex: 1,
     gap: 4,
   },
   homeLinkTitle: {
-    color: '#17211F',
-    fontSize: 16,
+    color: '#075A43',
+    fontSize: 18,
     fontWeight: '900',
   },
   homeLinkTitleRow: {
@@ -1105,7 +1184,7 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     alignItems: 'center',
-    backgroundColor: '#E22D1A',
+    backgroundColor: '#B40B35',
     borderRadius: 14,
     justifyContent: 'center',
     minHeight: 28,
@@ -1119,18 +1198,17 @@ const styles = StyleSheet.create({
   },
   homeLinkDescription: {
     color: '#4F5D58',
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 21,
   },
   homeLinkArrow: {
-    color: '#38635D',
-    fontSize: 20,
+    fontSize: 26,
     fontWeight: '800',
   },
   loadingPanel: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1190,7 +1268,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     color: '#17211F',
@@ -1217,7 +1295,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1233,7 +1311,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1241,7 +1319,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -1251,7 +1329,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   textButtonLabel: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '800',
   },

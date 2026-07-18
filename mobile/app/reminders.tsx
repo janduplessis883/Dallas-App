@@ -116,7 +116,7 @@ export default function RemindersScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#38635D" />
+          <ActivityIndicator color="#075A43" />
           <Text style={styles.loadingText}>Checking notifications...</Text>
         </View>
       </SafeAreaView>
@@ -156,11 +156,6 @@ export default function RemindersScreen() {
 
         {message ? <Text style={styles.message}>{message}</Text> : null}
 
-        <Link href="/" asChild>
-          <Pressable style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Back home</Text>
-          </Pressable>
-        </Link>
       </ScrollView>
     </SafeAreaView>
   );
@@ -178,7 +173,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   container: {
     gap: 18,
@@ -195,7 +190,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -214,7 +209,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
   },
@@ -237,7 +232,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -250,7 +245,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -258,7 +253,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 16,
     fontWeight: '900',
   },

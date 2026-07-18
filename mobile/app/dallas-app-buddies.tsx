@@ -512,7 +512,7 @@ export default function DallasAppBuddiesScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#38635D" />
+          <ActivityIndicator color="#075A43" />
           <Text style={styles.loadingText}>Loading Dallas App Buddies...</Text>
         </View>
       </SafeAreaView>
@@ -554,7 +554,7 @@ export default function DallasAppBuddiesScreen() {
               style={styles.connectHeader}
               onPress={() => setShowConnectSection((visible) => !visible)}
             >
-              <MaterialIcons color="#38635D" name={showConnectSection ? 'expand-less' : 'expand-more'} size={24} />
+              <MaterialIcons color="#075A43" name={showConnectSection ? 'expand-less' : 'expand-more'} size={24} />
               <View style={styles.connectTitleCopy}>
                 <Text style={styles.sectionTitle}>Connect Dallas App Buddies</Text>
                 <Text style={styles.connectSummary}>{buddies.length} connected</Text>
@@ -578,7 +578,7 @@ export default function DallasAppBuddiesScreen() {
                       style={[styles.copyButton, !dallasCode && styles.disabledButton]}
                       onPress={handleCopyDallasCode}
                     >
-                      <MaterialIcons color="#38635D" name="content-copy" size={18} />
+                      <MaterialIcons color="#075A43" name="content-copy" size={18} />
                       <Text style={styles.copyButtonText}>Copy</Text>
                     </Pressable>
                   </View>
@@ -630,7 +630,7 @@ export default function DallasAppBuddiesScreen() {
                             'Dallas app buddy'}
                         </Text>
                       </View>
-                      <MaterialIcons color="#38635D" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
+                      <MaterialIcons color="#075A43" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
                     </Pressable>
 
                     {expanded ? (
@@ -777,7 +777,7 @@ export default function DallasAppBuddiesScreen() {
                                 onPress={() => setShowTimeZoneOptions((visible) => !visible)}
                               >
                                 <MaterialIcons
-                                  color="#38635D"
+                                  color="#075A43"
                                   name={showTimeZoneOptions ? 'expand-less' : 'expand-more'}
                                   size={20}
                                 />
@@ -840,11 +840,6 @@ export default function DallasAppBuddiesScreen() {
 
           {message ? <Text style={styles.statusMessage}>{message}</Text> : null}
 
-          <Link href="/" asChild>
-            <Pressable style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Back home</Text>
-            </Pressable>
-          </Link>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -1018,7 +1013,7 @@ function settingsLabel(buddy: BuddyPartner) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   keyboardArea: {
     flex: 1,
@@ -1038,7 +1033,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -1057,7 +1052,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
@@ -1086,7 +1081,7 @@ const styles = StyleSheet.create({
   },
   codePanel: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     padding: 12,
@@ -1120,7 +1115,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   copyButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1129,13 +1124,13 @@ const styles = StyleSheet.create({
   },
   buddyItem: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'hidden',
   },
   activeBuddyItem: {
-    borderColor: '#38635D',
+    borderColor: '#075A43',
   },
   buddyHeader: {
     alignItems: 'center',
@@ -1158,7 +1153,7 @@ const styles = StyleSheet.create({
     width: 44,
   },
   smallAvatarInitial: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 17,
     fontWeight: '900',
   },
@@ -1200,7 +1195,7 @@ const styles = StyleSheet.create({
   },
   plannedItem: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
@@ -1218,7 +1213,7 @@ const styles = StyleSheet.create({
   },
   pickerPanel: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -1248,7 +1243,7 @@ const styles = StyleSheet.create({
   },
   stepperButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     height: 44,
     justifyContent: 'center',
@@ -1265,7 +1260,7 @@ const styles = StyleSheet.create({
   },
   quickDateButton: {
     alignItems: 'center',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1274,8 +1269,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   activeQuickDateButton: {
-    backgroundColor: '#38635D',
-    borderColor: '#38635D',
+    backgroundColor: '#075A43',
+    borderColor: '#075A43',
   },
   quickDateButtonText: {
     color: '#4F5D58',
@@ -1288,7 +1283,7 @@ const styles = StyleSheet.create({
   },
   messagePanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -1305,12 +1300,12 @@ const styles = StyleSheet.create({
   },
   myMessageBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
   },
   theirMessageBubble: {
     alignSelf: 'flex-start',
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderWidth: 1,
   },
   messageBody: {
@@ -1345,7 +1340,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     color: '#17211F',
@@ -1375,7 +1370,7 @@ const styles = StyleSheet.create({
   timeZoneToggle: {
     alignItems: 'center',
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1384,7 +1379,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   timeZoneToggleText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1395,15 +1390,15 @@ const styles = StyleSheet.create({
   },
   timeZoneOption: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
   activeTimeZoneOption: {
-    backgroundColor: '#38635D',
-    borderColor: '#38635D',
+    backgroundColor: '#075A43',
+    borderColor: '#075A43',
   },
   timeZoneOptionText: {
     color: '#4F5D58',
@@ -1415,7 +1410,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1428,7 +1423,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1436,7 +1431,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   secondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '900',
   },

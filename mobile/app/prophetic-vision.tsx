@@ -408,7 +408,7 @@ export default function PropheticVisionScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#38635D" />
+          <ActivityIndicator color="#075A43" />
           <Text style={styles.loadingText}>Loading Prophetic Vision...</Text>
         </View>
       </SafeAreaView>
@@ -609,11 +609,6 @@ export default function PropheticVisionScreen() {
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
-          <Link href="/" asChild>
-            <Pressable style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Back home</Text>
-            </Pressable>
-          </Link>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -702,7 +697,7 @@ const markdownStyles = StyleSheet.create({
   },
   fence: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     color: '#17211F',
@@ -731,7 +726,7 @@ const markdownStyles = StyleSheet.create({
     marginBottom: 4,
   },
   hr: {
-    backgroundColor: '#DED7C9',
+    backgroundColor: '#E3E1DB',
     height: 1,
     marginVertical: 10,
   },
@@ -752,7 +747,7 @@ const markdownStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   keyboardArea: {
     flex: 1,
@@ -772,7 +767,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -806,7 +801,7 @@ const styles = StyleSheet.create({
     top: 12,
   },
   coverEditButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -846,13 +841,13 @@ const styles = StyleSheet.create({
     lineHeight: 39,
   },
   coverCopy: {
-    color: '#F7F3EA',
+    color: '#FFFFFF',
     fontSize: 15,
     lineHeight: 22,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -878,7 +873,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   toggleButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -901,7 +896,7 @@ const styles = StyleSheet.create({
   },
   playButton: {
     alignItems: 'center',
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
@@ -928,7 +923,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: {
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
     borderRadius: 3,
     height: 6,
   },
@@ -940,7 +935,7 @@ const styles = StyleSheet.create({
   recordingRow: {
     alignItems: 'center',
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -961,7 +956,7 @@ const styles = StyleSheet.create({
     width: 10,
   },
   activeRecordingDot: {
-    backgroundColor: '#B3261E',
+    backgroundColor: '#B40B35',
   },
   recordingText: {
     color: '#4F5D58',
@@ -971,7 +966,7 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 42,
@@ -979,7 +974,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   stopButton: {
-    backgroundColor: '#B3261E',
+    backgroundColor: '#B40B35',
   },
   recordButtonText: {
     color: '#FFFFFF',
@@ -992,7 +987,7 @@ const styles = StyleSheet.create({
   },
   compactSecondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1001,13 +996,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   compactSecondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '900',
   },
   compactRecordButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
@@ -1028,7 +1023,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     color: '#17211F',
@@ -1039,7 +1034,7 @@ const styles = StyleSheet.create({
   },
   markdownPreview: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
@@ -1066,7 +1061,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1092,7 +1087,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1100,7 +1095,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 16,
     fontWeight: '800',
   },

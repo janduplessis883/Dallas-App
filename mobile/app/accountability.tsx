@@ -844,7 +844,7 @@ export default function AccountabilityScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#38635D" />
+          <ActivityIndicator color="#075A43" />
           <Text style={styles.loadingText}>Loading accountability partners...</Text>
         </View>
       </SafeAreaView>
@@ -1110,7 +1110,7 @@ export default function AccountabilityScreen() {
                   onPress={() => setShowTimeZoneOptions((isVisible) => !isVisible)}
                 >
                   <MaterialIcons
-                    color="#38635D"
+                    color="#075A43"
                     name={showTimeZoneOptions ? 'expand-less' : 'expand-more'}
                     size={20}
                   />
@@ -1232,11 +1232,6 @@ export default function AccountabilityScreen() {
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
-          <Link href="/" asChild>
-            <Pressable style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Back home</Text>
-            </Pressable>
-          </Link>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -1299,7 +1294,7 @@ function CollapsibleSection({
           style={styles.collapsibleHeaderButton}
           onPress={onToggle}
         >
-          <MaterialIcons color="#38635D" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
+          <MaterialIcons color="#075A43" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
           <View style={styles.collapsibleTitleCopy}>
             <Text style={styles.panelTitle}>{title}</Text>
             {summary ? <Text style={styles.collapsibleSummary}>{summary}</Text> : null}
@@ -1581,7 +1576,7 @@ async function scheduleCheckInNotification({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F7F3EA',
+    backgroundColor: '#FFFFFF',
   },
   keyboardArea: {
     flex: 1,
@@ -1601,7 +1596,7 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
@@ -1620,7 +1615,7 @@ const styles = StyleSheet.create({
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
@@ -1671,13 +1666,13 @@ const styles = StyleSheet.create({
   },
   partnerItem: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'hidden',
   },
   activePartnerItem: {
-    borderColor: '#38635D',
+    borderColor: '#075A43',
   },
   partnerCard: {
     alignItems: 'center',
@@ -1699,7 +1694,7 @@ const styles = StyleSheet.create({
     width: 44,
   },
   smallAvatarInitial: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 17,
     fontWeight: '900',
   },
@@ -1730,7 +1725,7 @@ const styles = StyleSheet.create({
   },
   inlinePrimaryButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
@@ -1744,7 +1739,7 @@ const styles = StyleSheet.create({
   },
   inlineSecondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1753,7 +1748,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   inlineSecondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1777,7 +1772,7 @@ const styles = StyleSheet.create({
   },
   plannedItem: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 10,
@@ -1802,7 +1797,7 @@ const styles = StyleSheet.create({
   },
   miniPrimaryButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
@@ -1816,7 +1811,7 @@ const styles = StyleSheet.create({
   },
   miniSecondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1825,7 +1820,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   miniSecondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 12,
     fontWeight: '900',
   },
@@ -1848,7 +1843,7 @@ const styles = StyleSheet.create({
     width: 72,
   },
   avatarInitial: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 28,
     fontWeight: '900',
   },
@@ -1867,7 +1862,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     color: '#17211F',
@@ -1897,7 +1892,7 @@ const styles = StyleSheet.create({
   timeZoneToggle: {
     alignItems: 'center',
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1906,7 +1901,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   timeZoneToggleText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1917,15 +1912,15 @@ const styles = StyleSheet.create({
   },
   timeZoneOption: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
   activeTimeZoneOption: {
-    backgroundColor: '#38635D',
-    borderColor: '#38635D',
+    backgroundColor: '#075A43',
+    borderColor: '#075A43',
   },
   timeZoneOptionText: {
     color: '#4F5D58',
@@ -1941,7 +1936,7 @@ const styles = StyleSheet.create({
   },
   pickerPanel: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -1971,7 +1966,7 @@ const styles = StyleSheet.create({
   },
   stepperButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     height: 44,
     justifyContent: 'center',
@@ -1988,7 +1983,7 @@ const styles = StyleSheet.create({
   },
   quickDateButton: {
     alignItems: 'center',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1997,8 +1992,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   activeQuickDateButton: {
-    backgroundColor: '#38635D',
-    borderColor: '#38635D',
+    backgroundColor: '#075A43',
+    borderColor: '#075A43',
   },
   quickDateButtonText: {
     color: '#4F5D58',
@@ -2018,7 +2013,7 @@ const styles = StyleSheet.create({
   },
   codePanel: {
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     gap: 6,
@@ -2043,7 +2038,7 @@ const styles = StyleSheet.create({
   copyButton: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2053,7 +2048,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   copyButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -2063,7 +2058,7 @@ const styles = StyleSheet.create({
   historyItem: {
     alignItems: 'center',
     backgroundColor: '#F9F7F0',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2082,7 +2077,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   historyPartner: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -2094,7 +2089,7 @@ const styles = StyleSheet.create({
   historyAvatar: {
     alignItems: 'center',
     backgroundColor: '#ECE5D8',
-    borderColor: '#DED7C9',
+    borderColor: '#E3E1DB',
     borderRadius: 22,
     borderWidth: 1,
     height: 44,
@@ -2107,13 +2102,13 @@ const styles = StyleSheet.create({
     width: 44,
   },
   historyAvatarInitial: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 17,
     fontWeight: '900',
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -2126,7 +2121,7 @@ const styles = StyleSheet.create({
   },
   smallButton: {
     alignItems: 'center',
-    backgroundColor: '#38635D',
+    backgroundColor: '#075A43',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 36,
@@ -2139,7 +2134,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#38635D',
+    borderColor: '#075A43',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -2147,7 +2142,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#38635D',
+    color: '#075A43',
     fontSize: 16,
     fontWeight: '900',
   },
