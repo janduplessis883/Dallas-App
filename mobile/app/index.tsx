@@ -20,6 +20,7 @@ import type { Session } from '@supabase/supabase-js';
 import { deviceStorage } from '../src/lib/deviceStorage';
 import { registerAndSavePushTokenAsync, syncGrantedPushTokenAsync } from '../src/lib/notifications';
 import { isSupabaseConfigured, supabase } from '../src/lib/supabase';
+import { colors, type } from '../src/theme/designTokens';
 
 const loginLogo = require('../assets/login-logo.png');
 const importantInfoStorageKey = 'dallas.important_info_acknowledged';
@@ -34,9 +35,15 @@ type HomeProfile = {
   home_cover_image_path: string | null;
 };
 
+type HomeContext = {
+  currentCheckIn: { note: string | null } | null;
+  eventPlan: { event_date: string; event_name: string } | null;
+  plannedCheckIn: { note: string | null; scheduled_at: string } | null;
+};
+
 const homeLinks = [
   {
-    description: 'Goals, commitments, and support resources.',
+    description: 'Goals and commitments.',
     href: '/recovery-plan',
     icon: 'flag',
     label: 'Recovery plan',
@@ -66,16 +73,16 @@ const homeLinks = [
     label: 'Dallas App Buddies',
   },
   {
-    description: 'Prepare before, stay anchored during, and debrief after events.',
+    description: 'Prepare before and after an event.',
     href: '/event-planning',
     icon: 'event-note',
     label: 'Event planning',
   },
   {
-    description: 'Plan weekends, days off, being alone, travel, or other predictable risk windows.',
+    description: 'Plan for predictable difficult moments.',
     href: '/danger-zone-planning',
     icon: 'warning',
-    label: 'Danger Zone Planner',
+    label: 'Plan for difficult moments',
   },
   {
     description: 'Notification schedules and recovery prompts.',
@@ -99,11 +106,10 @@ const homeLinks = [
 
 const primaryHomeHrefs = new Set([
   '/recovery-plan',
-  '/accountability',
   '/event-planning',
   '/danger-zone-planning',
-  '/reminders',
 ]);
+
 
 function getAvatarUrl(session: Session | null) {
   const avatarUrl = session?.user.user_metadata?.avatar_url;
@@ -136,9 +142,11 @@ export default function HomeScreen() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [pushStatus, setPushStatus] = useState('Not requested');
+  const [homeContext, setHomeContext] = useState<HomeContext>({ currentCheckIn: null, eventPlan: null, plannedCheckIn: null });
   const configured = useMemo(() => isSupabaseConfigured(), []);
   const preferredNameFromSession = profile?.display_name ?? getPreferredName(session);
   const avatarUrl = profile?.avatar_path ? getPublicAvatarUrl(profile.avatar_path) : getAvatarUrl(session);
+  const hasPlannedCheckInToday = homeContext.plannedCheckIn ? isHomeDateToday(homeContext.plannedCheckIn.scheduled_at) : false;
   const homeCoverUrl = profile?.home_cover_image_path
     ? getPublicHomeCoverUrl(profile.home_cover_image_path)
     : '';
@@ -174,6 +182,7 @@ export default function HomeScreen() {
       if (data.session) {
         syncSavedPushToken(data.session.user.id);
         loadUnreadCounts(data.session.user.id, mounted);
+        loadHomeContext(data.session.user.id).then((context) => mounted && setHomeContext(context));
         loadHomeProfile(data.session.user.id).then((nextProfile) => {
           if (mounted) {
             setProfile(nextProfile);
@@ -197,6 +206,7 @@ export default function HomeScreen() {
       if (nextSession) {
         syncSavedPushToken(nextSession.user.id);
         loadUnreadCounts(nextSession.user.id, mounted);
+        loadHomeContext(nextSession.user.id).then((context) => mounted && setHomeContext(context));
         loadHomeProfile(nextSession.user.id).then((nextProfile) => {
           if (mounted) {
             setProfile(nextProfile);
@@ -226,6 +236,7 @@ export default function HomeScreen() {
         if (!data.session) {
           setAccountabilityUnreadCount(0);
           setBuddiesUnreadCount(0);
+          setHomeContext({ currentCheckIn: null, eventPlan: null, plannedCheckIn: null });
           setAvatarFailed(false);
           setProfile(null);
           return;
@@ -233,6 +244,7 @@ export default function HomeScreen() {
 
         syncSavedPushToken(data.session.user.id);
         loadUnreadCounts(data.session.user.id, active);
+        loadHomeContext(data.session.user.id).then((context) => active && setHomeContext(context));
         loadHomeProfile(data.session.user.id).then((nextProfile) => {
           if (active) {
             setProfile(nextProfile);
@@ -424,7 +436,7 @@ export default function HomeScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.loadingPanel}>
-          <ActivityIndicator color="#075A43" />
+          <ActivityIndicator color="#2E4737" />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
@@ -504,7 +516,7 @@ export default function HomeScreen() {
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {sessionLoading ? (
           <View style={styles.loadingPanel}>
-            <ActivityIndicator color="#075A43" />
+            <ActivityIndicator color="#2E4737" />
             <Text style={styles.loadingText}>Checking session...</Text>
           </View>
         ) : session ? (
@@ -545,7 +557,79 @@ export default function HomeScreen() {
               </View>
             )}
 
-            <View style={styles.homeGrid}>
+            <View style={styles.greetingRow}>
+              <View style={styles.greetingCopy}>
+                <Text style={styles.greetingText}>Good {getTimeOfDay()}, {preferredNameFromSession || 'there'}</Text>
+                <Text style={styles.greetingSubtext}>You only need to take the next helpful step.</Text>
+              </View>
+              <MaterialIcons color={colors.primary} name="wb-sunny" size={24} />
+            </View>
+
+            <View style={styles.todayPanel}>
+              <Text style={styles.sectionEyebrow}>Today</Text>
+              <Text style={styles.sectionHeading}>What would help right now?</Text>
+              <Text style={styles.sectionCopy}>A short check-in can help you choose your next supportive step.</Text>
+              <View style={styles.checkInStatusRow}>
+                <View style={[styles.statusDot, homeContext.currentCheckIn ? styles.statusDotComplete : styles.statusDotPending]} />
+                <Text style={styles.checkInStatusText}>
+                  {homeContext.currentCheckIn?.note || (hasPlannedCheckInToday ? 'Check-in planned for today' : 'No check-in recorded today')}
+                </Text>
+              </View>
+              {homeContext.plannedCheckIn ? (
+                <View style={styles.upcomingRow}>
+                  <MaterialIcons color={colors.support} name="schedule" size={20} />
+                  <View style={styles.upcomingCopy}>
+                    <Text style={styles.upcomingLabel}>Next planned check-in</Text>
+                    <Text style={styles.upcomingValue}>{formatHomeDate(homeContext.plannedCheckIn.scheduled_at)}</Text>
+                  </View>
+                </View>
+              ) : null}
+              {homeContext.eventPlan ? (
+                <Link href="/event-planning" asChild>
+                  <Pressable style={styles.upcomingRow}>
+                    <MaterialIcons color={colors.warning} name="event" size={20} />
+                    <View style={styles.upcomingCopy}>
+                      <Text style={styles.upcomingLabel}>Upcoming event</Text>
+                      <Text style={styles.upcomingValue}>{homeContext.eventPlan.event_name || 'Event plan'} · {homeContext.eventPlan.event_date}</Text>
+                    </View>
+                  </Pressable>
+                </Link>
+              ) : null}
+              <Link href="/accountability" asChild>
+                <Pressable accessibilityRole="button" style={styles.primaryAction}>
+                  <MaterialIcons color={colors.white} name="check-circle" size={22} />
+                  <Text style={styles.primaryActionText}>Check in now</Text>
+                </Pressable>
+              </Link>
+            </View>
+
+            <View style={styles.homeSection}>
+              <Text style={styles.sectionEyebrow}>Your support</Text>
+              <View style={styles.supportRow}>
+                <Link href="/accountability" asChild>
+                  <Pressable style={styles.supportCard}>
+                    <MaterialIcons color={colors.support} name="groups" size={22} />
+                    <View style={styles.supportCardCopy}>
+                      <Text style={styles.supportCardTitle}>Accountability</Text>
+                      <Text style={styles.supportCardText}>{accountabilityUnreadCount ? `${accountabilityUnreadCount} unread` : 'Check in with your people'}</Text>
+                    </View>
+                  </Pressable>
+                </Link>
+                <Link href="/dallas-app-buddies" asChild>
+                  <Pressable style={styles.supportCard}>
+                    <MaterialIcons color={colors.primary} name="forum" size={22} />
+                    <View style={styles.supportCardCopy}>
+                      <Text style={styles.supportCardTitle}>Buddies</Text>
+                      <Text style={styles.supportCardText}>{buddiesUnreadCount ? `${buddiesUnreadCount} unread` : 'Message a Dallas buddy'}</Text>
+                    </View>
+                  </Pressable>
+                </Link>
+              </View>
+            </View>
+
+            <View style={styles.homeSection}>
+              <Text style={styles.sectionEyebrow}>Plan ahead</Text>
+              <View style={styles.homeGrid}>
               {primaryHomeLinks.map((item) => (
                 <Link key={item.href} href={item.href} asChild>
                   <Pressable style={styles.homeLink}>
@@ -576,6 +660,26 @@ export default function HomeScreen() {
                   </Pressable>
                 </Link>
               ))}
+            </View>
+            </View>
+
+            <View style={styles.moreToolsPanel}>
+              <Text style={styles.sectionEyebrow}>More tools</Text>
+              <View style={styles.moreToolsGrid}>
+                {[
+                  { href: '/ai-support', icon: 'psychology', label: 'AI support' },
+                  { href: '/prophetic-vision', icon: 'auto-awesome', label: 'Prophetic Vision' },
+                  { href: '/reminders', icon: 'notifications-none', label: 'Reminders' },
+                  { href: '/profile', icon: 'person', label: 'Profile' },
+                ].map((item) => (
+                  <Link key={item.href} href={item.href as never} asChild>
+                    <Pressable style={styles.moreTool}>
+                      <MaterialIcons color={colors.quiet} name={item.icon as keyof typeof MaterialIcons.glyphMap} size={19} />
+                      <Text style={styles.moreToolText}>{item.label}</Text>
+                    </Pressable>
+                  </Link>
+                ))}
+              </View>
             </View>
 
             <Pressable
@@ -648,7 +752,7 @@ export default function HomeScreen() {
                     autoComplete="name"
                     onChangeText={setPreferredName}
                     placeholder="What should we call you?"
-                    placeholderTextColor="#8A948F"
+                    placeholderTextColor="#768277"
                     style={styles.input}
                     textContentType="givenName"
                     value={preferredName}
@@ -664,7 +768,7 @@ export default function HomeScreen() {
                     keyboardType="phone-pad"
                     onChangeText={setPhoneNumber}
                     placeholder="+14155552671"
-                    placeholderTextColor="#8A948F"
+                    placeholderTextColor="#768277"
                     style={styles.input}
                     textContentType="telephoneNumber"
                     value={phoneNumber}
@@ -683,7 +787,7 @@ export default function HomeScreen() {
                 keyboardType="email-address"
                 onChangeText={setEmail}
                 placeholder="you@example.com"
-                placeholderTextColor="#8A948F"
+                placeholderTextColor="#768277"
                 style={styles.input}
                 textContentType="emailAddress"
                 value={email}
@@ -698,7 +802,7 @@ export default function HomeScreen() {
                   autoComplete={authMode === 'sign-in' ? 'current-password' : 'new-password'}
                   onChangeText={setPassword}
                   placeholder="At least 6 characters"
-                  placeholderTextColor="#8A948F"
+                  placeholderTextColor="#768277"
                   secureTextEntry
                   style={styles.input}
                   textContentType={authMode === 'sign-in' ? 'password' : 'newPassword'}
@@ -812,22 +916,132 @@ async function loadHomeProfile(userId: string) {
   return data;
 }
 
+async function loadHomeContext(userId: string): Promise<HomeContext> {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const [currentCheckInResult, checkInResult, eventResult] = await Promise.all([
+    supabase
+      .from('accountability_check_ins')
+      .select('note')
+      .eq('user_id', userId)
+      .gte('completed_at', startOfDay.toISOString())
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('accountability_planned_check_ins')
+      .select('note, scheduled_at')
+      .eq('user_id', userId)
+      .gte('scheduled_at', new Date().toISOString())
+      .order('scheduled_at', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('event_plans')
+      .select('event_date, event_name')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
+      .limit(10),
+  ]);
+
+  const eventPlan = (eventResult.data ?? [])
+    .filter((plan) => typeof plan.event_date === 'string' && plan.event_date.trim() && isHomeDateUpcoming(plan.event_date))
+    .sort((a, b) => compareHomeDates(a.event_date, b.event_date))[0] ?? null;
+
+  return {
+    currentCheckIn: currentCheckInResult.data ?? null,
+    eventPlan,
+    plannedCheckIn: checkInResult.data ?? null,
+  };
+}
+
+function compareHomeDates(left: string, right: string) {
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+
+  if (Number.isNaN(leftTime) || Number.isNaN(rightTime)) {
+    return left.localeCompare(right);
+  }
+
+  return leftTime - rightTime;
+}
+
+function isHomeDateUpcoming(value: string, now = new Date()) {
+  const trimmedValue = value.trim();
+
+  // Event plans are date-based, so an event scheduled for today is still upcoming.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
+    const today = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+      .map((part) => String(part).padStart(2, '0'));
+
+    return trimmedValue >= `${today[0]}-${today[1]}-${today[2]}`;
+  }
+
+  const parsedTime = Date.parse(trimmedValue);
+  return !Number.isNaN(parsedTime) && parsedTime >= now.getTime();
+}
+
+function isHomeDateToday(value: string, now = new Date()) {
+  const trimmedValue = value.trim();
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmedValue);
+
+  if (dateOnlyMatch) {
+    return Number(dateOnlyMatch[1]) === now.getFullYear()
+      && Number(dateOnlyMatch[2]) === now.getMonth() + 1
+      && Number(dateOnlyMatch[3]) === now.getDate();
+  }
+
+  const parsed = new Date(trimmedValue);
+
+  return !Number.isNaN(parsed.getTime())
+    && parsed.getFullYear() === now.getFullYear()
+    && parsed.getMonth() === now.getMonth()
+    && parsed.getDate() === now.getDate();
+}
+
+function formatHomeDate(value: string) {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(parsed);
+}
+
+function getTimeOfDay() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return 'morning';
+  }
+
+  if (hour < 18) {
+    return 'afternoon';
+  }
+
+  return 'evening';
+}
+
 function getInitial(displayName: string, email: string | undefined) {
   return (displayName || email || 'D').trim().charAt(0).toUpperCase();
 }
 
 function getHomeLinkAccent(href: string) {
   switch (href) {
+    case '/prophetic-vision':
+      return { color: '#725620', surface: '#F3E8C7' };
     case '/accountability':
-      return { color: '#007C78', surface: '#DFF3F0' };
+      return { color: '#829480', surface: '#EEF1EC' };
     case '/event-planning':
-      return { color: '#806400', surface: '#FFF3B8' };
+      return { color: '#768277', surface: '#EEF1EC' };
     case '/danger-zone-planning':
-      return { color: '#B40B35', surface: '#F8E3ED' };
+      return { color: '#A33D32', surface: '#FFF8F7' };
     case '/reminders':
-      return { color: '#B51E66', surface: '#F8E3ED' };
+      return { color: '#2E4737', surface: '#FFF8F7' };
     default:
-      return { color: '#075A43', surface: '#E6F1EA' };
+      return { color: '#2E4737', surface: '#EEF1EC' };
   }
 }
 
@@ -899,7 +1113,7 @@ function getConfiguredUrl(value: string | undefined, fallback: string) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F7F5',
   },
   keyboardArea: {
     flex: 1,
@@ -908,6 +1122,7 @@ const styles = StyleSheet.create({
     gap: 18,
     minHeight: '100%',
     padding: 24,
+    paddingBottom: 136,
     paddingTop: 36,
   },
   brandHeader: {
@@ -926,33 +1141,38 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   brandName: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 38,
     fontWeight: '900',
     lineHeight: 42,
   },
   brandTagline: {
-    color: '#007C78',
+    color: '#829480',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   eyebrow: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#17211F',
-    fontSize: 34,
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: type.screenTitle,
     fontWeight: '800',
     lineHeight: 40,
   },
   copy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
@@ -972,11 +1192,13 @@ const styles = StyleSheet.create({
   },
   warningTitle: {
     color: '#6F3517',
+    fontFamily: 'Manrope',
     fontSize: 18,
     fontWeight: '900',
   },
   warningText: {
     color: '#6F3517',
+    fontFamily: 'Manrope',
     fontSize: 15,
     lineHeight: 22,
   },
@@ -990,7 +1212,7 @@ const styles = StyleSheet.create({
   },
   infoMarker: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 13,
     height: 26,
     justifyContent: 'center',
@@ -998,12 +1220,14 @@ const styles = StyleSheet.create({
   },
   infoMarkerText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
   infoBlockTitle: {
-    color: '#17211F',
+    color: '#171717',
     flex: 1,
+    fontFamily: 'Manrope',
     fontSize: 18,
     fontWeight: '900',
   },
@@ -1012,33 +1236,36 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   infoBullet: {
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 4,
     height: 8,
     marginTop: 7,
     width: 8,
   },
   infoBulletText: {
-    color: '#4F5D58',
+    color: '#777777',
     flex: 1,
+    fontFamily: 'Manrope',
     fontSize: 15,
     lineHeight: 22,
   },
   responsibilityPanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
     padding: 16,
   },
   responsibilityTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 18,
     fontWeight: '900',
   },
   responsibilityText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 15,
     lineHeight: 22,
   },
@@ -1050,7 +1277,7 @@ const styles = StyleSheet.create({
     width: 132,
   },
   dashboardHero: {
-    backgroundColor: '#E6F1EA',
+    backgroundColor: '#EEF1EC',
     borderRadius: 8,
     gap: 16,
     minHeight: 224,
@@ -1061,7 +1288,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   dashboardHeroOverlay: {
-    backgroundColor: 'rgba(255, 255, 255, 0.76)',
+    backgroundColor: 'rgba(255, 255, 255, 0.46)',
     flex: 1,
     gap: 16,
     margin: -22,
@@ -1075,7 +1302,7 @@ const styles = StyleSheet.create({
   },
   heroIconBadge: {
     alignItems: 'center',
-    backgroundColor: '#007C78',
+    backgroundColor: '#829480',
     borderRadius: 26,
     height: 52,
     justifyContent: 'center',
@@ -1097,7 +1324,8 @@ const styles = StyleSheet.create({
     width: 48,
   },
   avatarInitial: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 19,
     fontWeight: '900',
   },
@@ -1106,19 +1334,22 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   heroEyebrow: {
-    color: '#BFD1CA',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   heroMeta: {
-    color: '#E5EDE7',
+    color: '#2F3E39',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   heroTitle: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 30,
     fontWeight: '900',
     lineHeight: 36,
@@ -1126,19 +1357,20 @@ const styles = StyleSheet.create({
   },
   heroSubtitle: {
     color: '#2F3E39',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 23,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     marginTop: 10,
   },
   authPanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
@@ -1146,6 +1378,193 @@ const styles = StyleSheet.create({
   },
   homeGrid: {
     gap: 12,
+  },
+  homeSection: {
+    gap: 10,
+  },
+  greetingRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  greetingCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  greetingText: {
+    color: colors.ink,
+    fontFamily: 'Manrope',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  greetingSubtext: {
+    color: colors.muted,
+    fontFamily: 'Manrope',
+    fontSize: type.supporting,
+    lineHeight: 18,
+  },
+  sectionEyebrow: {
+    color: colors.primary,
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  sectionHeading: {
+    color: colors.ink,
+    fontFamily: 'Manrope',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  sectionTitle: {
+    color: colors.ink,
+    fontFamily: 'Manrope',
+    fontSize: type.sectionTitle,
+    fontWeight: '900',
+  },
+  sectionCopy: {
+    color: colors.muted,
+    fontFamily: 'Manrope',
+    fontSize: type.body,
+    lineHeight: 21,
+  },
+  todayPanel: {
+    backgroundColor: colors.primarySoft,
+    borderColor: '#BFD1C8',
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  primaryAction: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 50,
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
+  primaryActionText: {
+    color: colors.white,
+    fontFamily: 'Manrope',
+    fontSize: type.button,
+    fontWeight: '900',
+  },
+  checkInStatusRow: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 42,
+    paddingHorizontal: 10,
+  },
+  statusDot: {
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  statusDotComplete: {
+    backgroundColor: colors.support,
+  },
+  statusDotPending: {
+    backgroundColor: colors.warning,
+  },
+  checkInStatusText: {
+    color: colors.ink,
+    flex: 1,
+    fontFamily: 'Manrope',
+    fontSize: type.supporting,
+    fontWeight: '800',
+  },
+  upcomingRow: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.74)',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 10,
+  },
+  upcomingCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  upcomingLabel: {
+    color: colors.quiet,
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  upcomingValue: {
+    color: colors.ink,
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  supportRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  supportCard: {
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 74,
+    padding: 12,
+  },
+  supportCardCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  supportCardTitle: {
+    color: colors.ink,
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  supportCardText: {
+    color: colors.muted,
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  moreToolsPanel: {
+    gap: 10,
+  },
+  moreToolsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  moreTool: {
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: 9,
+    borderWidth: 1,
+    flexBasis: '48%',
+    flexGrow: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 10,
+  },
+  moreToolText: {
+    color: colors.ink,
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '800',
   },
   homeLink: {
     alignItems: 'center',
@@ -1172,8 +1591,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   homeLinkTitle: {
-    color: '#075A43',
-    fontSize: 18,
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 16,
     fontWeight: '900',
   },
   homeLinkTitleRow: {
@@ -1184,7 +1604,7 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     alignItems: 'center',
-    backgroundColor: '#B40B35',
+    backgroundColor: '#A33D32',
     borderRadius: 14,
     justifyContent: 'center',
     minHeight: 28,
@@ -1193,22 +1613,25 @@ const styles = StyleSheet.create({
   },
   notificationBadgeText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
   homeLinkDescription: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 15,
     lineHeight: 21,
   },
   homeLinkArrow: {
+    fontFamily: 'Manrope',
     fontSize: 26,
     fontWeight: '800',
   },
   loadingPanel: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1216,7 +1639,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   loadingText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -1224,17 +1648,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   formTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 18,
     fontWeight: '800',
   },
   formCopy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
   modeControl: {
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 8,
     flexDirection: 'row',
     padding: 4,
@@ -1251,51 +1677,56 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   modeButtonText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '800',
   },
   activeModeButtonText: {
-    color: '#17211F',
+    color: '#171717',
   },
   fieldGroup: {
     gap: 6,
   },
   inputLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   input: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12,
   },
   row: {
-    borderBottomColor: '#ECE5D8',
+    borderBottomColor: '#E7E6E2',
     borderBottomWidth: 1,
     gap: 4,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   rowLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '600',
   },
   rowValue: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '700',
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1306,12 +1737,13 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1319,7 +1751,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -1329,12 +1762,14 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   textButtonLabel: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '800',
   },
   message: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 20,

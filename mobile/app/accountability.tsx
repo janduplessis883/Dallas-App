@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +27,7 @@ import {
   syncGrantedPushTokenAsync,
 } from '../src/lib/notifications';
 import { supabase } from '../src/lib/supabase';
+import { SectionCard } from '../src/components/SectionCard';
 
 type AccountabilityPartner = {
   app_connection_id: string | null;
@@ -85,6 +87,7 @@ type PartnerForm = {
 };
 
 type SectionKey = 'partners' | 'details' | 'replies' | 'history';
+type QuickCheckInStatus = 'okay' | 'support' | 'struggling';
 
 const emptyPartnerForm: PartnerForm = {
   checkInDate: '',
@@ -161,20 +164,22 @@ export default function AccountabilityScreen() {
   const [showTimeZoneOptions, setShowTimeZoneOptions] = useState(false);
   const [userDisplayName, setUserDisplayName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [quickCheckInStatus, setQuickCheckInStatus] = useState<QuickCheckInStatus | null>(null);
+  const [quickCheckInNote, setQuickCheckInNote] = useState('');
+  const [quickCheckInMessage, setQuickCheckInMessage] = useState('');
+  const [messageSentFeedback, setMessageSentFeedback] = useState<string | null>(null);
+  const [checkInSavedFeedback, setCheckInSavedFeedback] = useState(false);
 
   const selectedPartner = useMemo(
     () => partners.find((partner) => partner.id === selectedPartnerId) ?? null,
     [partners, selectedPartnerId],
-  );
-  const externalPartners = useMemo(
-    () => partners.filter((partner) => partner.partner_kind !== 'dallas_user'),
-    [partners],
   );
   const selectedAvatarUrl = selectedPartner?.avatar_path
     ? getPublicPartnerAvatarUrl(selectedPartner.avatar_path)
     : '';
   const selectedLocalTime = getLocalTime(form.timeZone);
   const selectedTimeZoneLabel = getTimeZoneLabel(form.timeZone);
+  const hasDallasBuddies = partners.some((partner) => partner.partner_kind === 'dallas_user');
 
   useEffect(() => {
     let mounted = true;
@@ -428,6 +433,9 @@ export default function AccountabilityScreen() {
       relationship: partner.relationship ?? '',
       timeZone: partner.time_zone ?? 'Europe/London',
     });
+    if (quickCheckInStatus && quickCheckInStatus !== 'okay') {
+      setQuickCheckInMessage(buildQuickCheckInMessage(partner.name, quickCheckInStatus, quickCheckInNote));
+    }
     loadCheckIns(partner.id);
     loadPlannedCheckIns(partner.id);
     loadPartnerMessages(partner.id);
@@ -678,6 +686,177 @@ export default function AccountabilityScreen() {
     });
   }
 
+  async function handleQuickCheckIn(status: QuickCheckInStatus) {
+    const notes: Record<QuickCheckInStatus, string> = {
+      okay: 'I am doing okay.',
+      support: 'I could use some support.',
+      struggling: 'I am struggling right now.',
+    };
+    const note = notes[status];
+
+    setQuickCheckInStatus(status);
+    setQuickCheckInNote(note);
+    setQuickCheckInMessage(selectedPartner ? buildQuickCheckInMessage(selectedPartner.name, status, note) : '');
+    setMessage(status === 'okay' ? 'Save this check-in when you are ready.' : 'Choose someone to message, then review and send the prepared message.');
+  }
+
+  async function handleSaveQuickCheckIn() {
+    if (!quickCheckInStatus) {
+      return;
+    }
+
+    if (!selectedPartnerId) {
+      setExpandedSections((current) => ({ ...current, partners: true }));
+      setMessage('Choose a trusted person below before saving this check-in.');
+      return;
+    }
+
+    const completed = await createCompletedCheckIn({
+      note: quickCheckInNote.trim() || null,
+      partnerId: selectedPartnerId,
+    });
+
+    if (completed) {
+      setCheckInSavedFeedback(true);
+      playMessageSentSound();
+    }
+  }
+
+  async function handleSendQuickCheckIn() {
+    if (!session || !quickCheckInStatus || quickCheckInStatus === 'okay') {
+      return;
+    }
+
+    if (!selectedPartner) {
+      setMessage('Choose someone to message before sending this check-in.');
+      return;
+    }
+
+    const body = quickCheckInMessage.trim();
+
+    if (!body) {
+      setMessage('Review the message before sending.');
+      return;
+    }
+
+    setCompletingCheckIn(true);
+    setMessage('Sending your check-in...');
+
+    let sent = false;
+
+    if (selectedPartner.partner_kind === 'dallas_user') {
+      if (!selectedPartner.app_connection_id) {
+        setCompletingCheckIn(false);
+        setMessage('This Dallas buddy is not connected for in-app messaging yet.');
+        return;
+      }
+
+      const { error } = await supabase.functions.invoke('accountability-app', {
+        body: {
+          action: 'send_message',
+          connectionId: selectedPartner.app_connection_id,
+          message: body,
+        },
+      });
+      sent = !error;
+      if (error) {
+        setMessage(error.message);
+      }
+    } else {
+      const replyLink = await createCheckInThread({ body, partnerId: selectedPartner.id });
+      sent = Boolean(replyLink) && await openSms(selectedPartner.mobile_number ?? '', `${body}\n\nReply here: ${replyLink}`);
+    }
+
+    if (!sent) {
+      setCompletingCheckIn(false);
+      return;
+    }
+
+    const completed = await createCompletedCheckIn({
+      note: quickCheckInNote.trim() || null,
+      partnerId: selectedPartner.id,
+    });
+    setCompletingCheckIn(false);
+
+    if (completed) {
+      setMessage(`Check-in sent to ${selectedPartner.name} and marked complete.`);
+      setMessageSentFeedback(selectedPartner.name);
+      playMessageSentSound();
+    }
+  }
+
+  function getQuickCheckInPrompt() {
+    switch (quickCheckInStatus) {
+      case 'okay':
+        return 'Keep your plan close and record what helped today.';
+      case 'support':
+        return 'Choose someone to contact, then take one small supportive step.';
+      case 'struggling':
+        return 'You do not have to handle this alone. Contact someone you trust now.';
+      default:
+        return '';
+    }
+  }
+
+  function renderQuickContactPicker(label: string) {
+    return (
+      <>
+        <Text style={styles.quickContactLabel}>{label}</Text>
+        {partners.length ? (
+          <View style={styles.quickContactList}>
+            {partners.map((partner) => (
+              <Pressable
+                key={partner.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: selectedPartnerId === partner.id }}
+                style={[styles.quickContactOption, selectedPartnerId === partner.id && styles.selectedQuickContactOption]}
+                onPress={() => handleSelectPartner(partner)}
+              >
+                <View style={styles.quickContactAvatar}>
+                  {partner.avatar_path ? (
+                    <Image
+                      source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }}
+                      style={styles.quickContactAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.quickContactAvatarInitial}>{getInitial(partner.name)}</Text>
+                  )}
+                </View>
+                <View style={styles.quickContactCopy}>
+                  <Text style={styles.quickContactName}>{partner.name}</Text>
+                  <Text style={styles.quickContactType}>
+                    {partner.partner_kind === 'dallas_user' ? 'In-app message' : 'SMS message'}
+                  </Text>
+                </View>
+                <MaterialIcons
+                  color={selectedPartnerId === partner.id ? '#2E4737' : '#768277'}
+                  name={selectedPartnerId === partner.id ? 'check-circle' : 'chevron-right'}
+                  size={22}
+                />
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.quickNoContactsPanel}>
+            <Text style={styles.quickNoContactsText}>You have no saved contacts yet.</Text>
+            <Link href="/dallas-app-buddies" asChild>
+              <Pressable style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>Find a Dallas buddy</Text>
+              </Pressable>
+            </Link>
+          </View>
+        )}
+        {partners.length && !hasDallasBuddies ? (
+          <Link href="/dallas-app-buddies" asChild>
+            <Pressable style={styles.textButton}>
+              <Text style={styles.textButtonLabel}>Find or connect with a Dallas buddy</Text>
+            </Pressable>
+          </Link>
+        ) : null}
+      </>
+    );
+  }
+
   async function handleCompletePlannedCheckIn(plannedCheckIn: AccountabilityPlannedCheckIn) {
     setCompletingPlannedCheckInId(plannedCheckIn.id);
 
@@ -844,7 +1023,7 @@ export default function AccountabilityScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#075A43" />
+          <ActivityIndicator color="#2E4737" />
           <Text style={styles.loadingText}>Loading accountability partners...</Text>
         </View>
       </SafeAreaView>
@@ -870,28 +1049,150 @@ export default function AccountabilityScreen() {
 
   return (
     <SafeAreaView style={styles.screen}>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={Boolean(messageSentFeedback) || checkInSavedFeedback}
+        onRequestClose={() => {
+          setMessageSentFeedback(null);
+          setCheckInSavedFeedback(false);
+        }}
+      >
+        <View style={styles.feedbackOverlay}>
+          <View style={styles.feedbackCard}>
+            <View style={styles.feedbackIcon}>
+              <MaterialIcons color="#FFFFFF" name="check" size={28} />
+            </View>
+            <Text style={styles.feedbackTitle}>{checkInSavedFeedback ? 'Check-in saved' : 'Message sent'}</Text>
+            <Text style={styles.feedbackCopy}>
+              {checkInSavedFeedback
+                ? 'Your “I’m okay” check-in has been saved to your history.'
+                : `Your check-in was sent to ${messageSentFeedback ?? 'your Dallas buddy'} and saved to your history.`}
+            </Text>
+            <Pressable
+              style={styles.feedbackButton}
+              onPress={() => {
+                setMessageSentFeedback(null);
+                setCheckInSavedFeedback(false);
+              }}
+            >
+              <Text style={styles.feedbackButtonText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardArea}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <Text style={styles.eyebrow}>Accountability</Text>
           <Text style={styles.title}>Stay connected</Text>
           <Text style={styles.copy}>
-            Add trusted people, plan check-ins, and send support messages when you need a steady connection.
+            Choose a buddy, take the next action, and keep replies and completed check-ins together.
           </Text>
 
+          <SectionCard title="How are you doing right now?" description="Choose the closest fit. This is a check-in, not a judgment.">
+            <View style={styles.quickCheckInGrid}>
+              {([
+                ['okay', 'I’m okay', 'Keep my plan close'],
+                ['support', 'I need support', 'Reach out to someone'],
+                ['struggling', 'I’m struggling', 'Take the next safe step'],
+              ] as const).map(([status, title, description]) => (
+                <Pressable
+                  key={status}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: quickCheckInStatus === status }}
+                  style={[styles.quickCheckInOption, quickCheckInStatus === status && styles.selectedQuickCheckInOption]}
+                  onPress={() => handleQuickCheckIn(status)}
+                >
+                  <Text style={styles.quickCheckInTitle}>{title}</Text>
+                  <Text style={styles.quickCheckInDescription}>{description}</Text>
+                </Pressable>
+              ))}
+            </View>
+            {quickCheckInStatus ? (
+              <View style={styles.quickNextStepPanel}>
+                <Text style={styles.quickNextStepTitle}>Next step</Text>
+                <Text style={styles.quickNextStepCopy}>{getQuickCheckInPrompt()}</Text>
+                <TextInput
+                  multiline
+                  placeholder="Optional reflection"
+                  placeholderTextColor="#768277"
+                  style={styles.quickReflectionInput}
+                  textAlignVertical="top"
+                  value={quickCheckInNote}
+                  onChangeText={setQuickCheckInNote}
+                />
+                {quickCheckInStatus === 'okay' ? (
+                  <>
+                    {renderQuickContactPicker('1. Select a partner to save this check-in')}
+                    <Pressable
+                      disabled={completingCheckIn || !selectedPartnerId}
+                      style={[styles.button, (completingCheckIn || !selectedPartnerId) && styles.disabledButton]}
+                      onPress={handleSaveQuickCheckIn}
+                    >
+                      <Text style={styles.buttonText}>
+                        {completingCheckIn ? 'Saving...' : selectedPartnerId ? '2. Save check-in' : 'Select a partner first'}
+                      </Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    {renderQuickContactPicker('1. Choose someone to message')}
+                    {selectedPartner ? (
+                      <>
+                        <Text style={styles.quickContactLabel}>2. Review your message</Text>
+                        <TextInput
+                          multiline
+                          placeholder="Your check-in message"
+                          placeholderTextColor="#768277"
+                          style={styles.quickReflectionInput}
+                          textAlignVertical="top"
+                          value={quickCheckInMessage}
+                          onChangeText={setQuickCheckInMessage}
+                        />
+                        <Pressable disabled={completingCheckIn} style={[styles.button, completingCheckIn && styles.disabledButton]} onPress={handleSendQuickCheckIn}>
+                          <Text style={styles.buttonText}>{completingCheckIn ? 'Sending...' : `3. Send to ${selectedPartner.name}`}</Text>
+                        </Pressable>
+                      </>
+                    ) : null}
+                  </>
+                )}
+                {quickCheckInStatus !== 'okay' ? (
+                  <>
+                    {quickCheckInStatus === 'struggling' ? (
+                      <Text style={styles.safetyNote}>
+                        Dallas is not emergency or medical care. If you may be in immediate danger, contact local emergency services or a qualified professional now.
+                      </Text>
+                    ) : null}
+                    <Link href="/dallas-app-buddies" asChild>
+                      <Pressable style={styles.secondaryButton}>
+                        <Text style={styles.secondaryButtonText}>Message a Dallas buddy</Text>
+                      </Pressable>
+                    </Link>
+                    <Link href="/recovery-plan" asChild>
+                      <Pressable style={styles.secondaryButton}>
+                        <Text style={styles.secondaryButtonText}>Review support plan</Text>
+                      </Pressable>
+                    </Link>
+                    <Link href="/settings" asChild>
+                      <Pressable style={styles.textButton}>
+                        <Text style={styles.textButtonLabel}>View safety information</Text>
+                      </Pressable>
+                    </Link>
+                  </>
+                ) : null}
+              </View>
+            ) : null}
+          </SectionCard>
+
           <CollapsibleSection
-            action={
-              <Pressable style={styles.smallButton} onPress={handleNewPartner}>
-                <Text style={styles.smallButtonText}>New</Text>
-              </Pressable>
-            }
             expanded={expandedSections.partners}
-            summary={selectedPartner ? `Selected: ${selectedPartner.name}` : `${externalPartners.length} saved`}
-            title="Partners"
+            summary={selectedPartner ? `Selected: ${selectedPartner.name}` : `${partners.length} saved`}
+            title="Buddies"
             onToggle={() => toggleSection('partners')}
           >
-            {externalPartners.length ? (
+            {partners.length ? (
               <View style={styles.partnerList}>
-                {externalPartners.map((partner) => {
+                {partners.map((partner) => {
                   const selected = partner.id === selectedPartnerId;
 
                   return (
@@ -911,8 +1212,8 @@ export default function AccountabilityScreen() {
                           <Text style={styles.partnerName}>{partner.name}</Text>
                           <Text style={styles.partnerMeta}>
                             {partner.partner_kind === 'dallas_user'
-                              ? 'Dallas app partner'
-                              : [partner.location, getLocalTime(partner.time_zone)].filter(Boolean).join(' - ')}
+                              ? 'Dallas App Buddy'
+                              : 'External Contact'}
                           </Text>
                         </View>
                       </Pressable>
@@ -920,12 +1221,22 @@ export default function AccountabilityScreen() {
                       {selected ? (
                         <View style={styles.inlineActions}>
                           <View style={styles.inlineActionRow}>
-                            <Pressable style={styles.inlinePrimaryButton} onPress={handleInvitePartner}>
-                              <Text style={styles.inlinePrimaryButtonText}>SMS invite</Text>
-                            </Pressable>
-                            <Pressable style={styles.inlineSecondaryButton} onPress={handleSendCheckIn}>
-                              <Text style={styles.inlineSecondaryButtonText}>Notify</Text>
-                            </Pressable>
+                            {partner.partner_kind === 'dallas_user' ? (
+                              <Link href={`/dallas-app-buddies?buddyId=${partner.id}`} asChild>
+                                <Pressable style={styles.inlinePrimaryButton}>
+                                  <Text style={styles.inlinePrimaryButtonText}>Open app chat</Text>
+                                </Pressable>
+                              </Link>
+                            ) : (
+                              <>
+                                <Pressable style={styles.inlinePrimaryButton} onPress={handleInvitePartner}>
+                                  <Text style={styles.inlinePrimaryButtonText}>SMS invite</Text>
+                                </Pressable>
+                                <Pressable style={styles.inlineSecondaryButton} onPress={handleSendCheckIn}>
+                                  <Text style={styles.inlineSecondaryButtonText}>Notify</Text>
+                                </Pressable>
+                              </>
+                            )}
                           </View>
                           <Text style={styles.inlineStatusText}>
                             Invited: {formatDateTime(partner.invited_at)} · Last message: {formatDateTime(partner.last_notified_at)}
@@ -1036,6 +1347,41 @@ export default function AccountabilityScreen() {
                               </Pressable>
                             </View>
                           </View>
+
+                          <View style={styles.inlineActivitySection}>
+                            <View style={styles.inlineActivityHeader}>
+                              <Text style={styles.inlineSectionTitle}>Replies</Text>
+                              <Text style={styles.inlineStatusText}>{partnerMessages.length} received</Text>
+                            </View>
+                            {partnerMessages.length ? partnerMessages.map((partnerMessage) => (
+                              <View key={partnerMessage.id} style={styles.inlineReplyItem}>
+                                <Text style={styles.inlineReplyTime}>{formatDateTime(partnerMessage.created_at)}</Text>
+                                <Text style={styles.inlineReplyBody}>{partnerMessage.body}</Text>
+                              </View>
+                            )) : <Text style={styles.inlineStatusText}>No replies yet.</Text>}
+                          </View>
+
+                          <View style={styles.inlineActivitySection}>
+                            <View style={styles.inlineActivityHeader}>
+                              <Text style={styles.inlineSectionTitle}>Completed check-ins</Text>
+                              <Text style={styles.inlineStatusText}>{checkIns.length} recent</Text>
+                            </View>
+                            <Pressable
+                              disabled={completingCheckIn}
+                              style={[styles.inlineSecondaryButton, completingCheckIn && styles.disabledButton]}
+                              onPress={handleMarkCheckInCompleted}
+                            >
+                              <Text style={styles.inlineSecondaryButtonText}>
+                                {completingCheckIn ? 'Saving...' : 'Mark completed'}
+                              </Text>
+                            </Pressable>
+                            {checkIns.length ? checkIns.map((checkIn) => (
+                              <View key={checkIn.id} style={styles.inlineReplyItem}>
+                                <Text style={styles.inlineReplyTime}>{formatDateTime(checkIn.completed_at)}</Text>
+                                {checkIn.note ? <Text style={styles.inlineReplyBody}>{checkIn.note}</Text> : null}
+                              </View>
+                            )) : <Text style={styles.inlineStatusText}>No completed check-ins yet.</Text>}
+                          </View>
                         </View>
                       ) : null}
                     </View>
@@ -1043,11 +1389,18 @@ export default function AccountabilityScreen() {
                 })}
               </View>
             ) : (
-              <Text style={styles.mutedText}>No external partners yet. Add your first support contact below.</Text>
+              <View style={styles.emptyStatePanel}>
+                <Text style={styles.mutedText}>No buddies yet. Add them from the Buddies area.</Text>
+                <Link href="/dallas-app-buddies" asChild>
+                  <Pressable style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Go to Buddies</Text>
+                  </Pressable>
+                </Link>
+              </View>
             )}
           </CollapsibleSection>
 
-          <CollapsibleSection
+          {false && <CollapsibleSection
             expanded={expandedSections.details}
             summary={selectedPartnerId ? form.name || 'Selected partner' : 'Create or update an external partner'}
             title={selectedPartnerId ? 'Partner details' : 'New partner'}
@@ -1110,7 +1463,7 @@ export default function AccountabilityScreen() {
                   onPress={() => setShowTimeZoneOptions((isVisible) => !isVisible)}
                 >
                   <MaterialIcons
-                    color="#075A43"
+                    color="#2E4737"
                     name={showTimeZoneOptions ? 'expand-less' : 'expand-more'}
                     size={20}
                   />
@@ -1150,9 +1503,9 @@ export default function AccountabilityScreen() {
             <Pressable disabled={saving} style={[styles.button, saving && styles.disabledButton]} onPress={() => savePartner()}>
               <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save partner'}</Text>
             </Pressable>
-          </CollapsibleSection>
+          </CollapsibleSection>}
 
-          <CollapsibleSection
+          {false && <CollapsibleSection
             expanded={expandedSections.replies}
             summary={`${partnerMessages.length} web replies`}
             title="Partner replies"
@@ -1185,9 +1538,9 @@ export default function AccountabilityScreen() {
                 {selectedPartnerId ? 'No partner replies yet.' : 'Select a partner to view replies.'}
               </Text>
             )}
-          </CollapsibleSection>
+          </CollapsibleSection>}
 
-          <CollapsibleSection
+          {false && <CollapsibleSection
             expanded={expandedSections.history}
             summary={`${checkIns.length} recent check-ins`}
             title="Completed check-ins"
@@ -1228,7 +1581,7 @@ export default function AccountabilityScreen() {
                 {selectedPartnerId ? 'No completed check-ins yet.' : 'Save or select a partner to start history.'}
               </Text>
             )}
-          </CollapsibleSection>
+          </CollapsibleSection>}
 
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
@@ -1261,7 +1614,7 @@ function Field({
         multiline={multiline}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#8A948F"
+        placeholderTextColor="#768277"
         style={[styles.input, multiline && styles.multilineInput]}
         textAlignVertical={multiline ? 'top' : 'center'}
         value={value}
@@ -1294,7 +1647,7 @@ function CollapsibleSection({
           style={styles.collapsibleHeaderButton}
           onPress={onToggle}
         >
-          <MaterialIcons color="#075A43" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
+          <MaterialIcons color="#2E4737" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
           <View style={styles.collapsibleTitleCopy}>
             <Text style={styles.panelTitle}>{title}</Text>
             {summary ? <Text style={styles.collapsibleSummary}>{summary}</Text> : null}
@@ -1406,6 +1759,22 @@ function formatTimeInput(value: string | null) {
   }
 
   return new Date(value).toTimeString().slice(0, 5);
+}
+
+function buildQuickCheckInMessage(name: string, status: QuickCheckInStatus, note: string) {
+  const statusText = {
+    okay: 'okay',
+    support: 'like I could use some support',
+    struggling: 'like I am struggling right now',
+  }[status];
+  const defaultNote = {
+    okay: 'I am doing okay.',
+    support: 'I could use some support.',
+    struggling: 'I am struggling right now.',
+  }[status];
+  const noteText = note.trim() && note.trim() !== defaultNote ? ` ${note.trim()}` : '';
+
+  return `Hi ${name}, I’m checking in. I’m feeling ${statusText}.${noteText} Could you check in with me?`;
 }
 
 function getQuickDateOptions() {
@@ -1573,10 +1942,230 @@ async function scheduleCheckInNotification({
   });
 }
 
+async function playMessageSentSound() {
+  try {
+    const permissions = await Notifications.getPermissionsAsync();
+    if (!hasGrantedNotificationPermission(permissions)) {
+      return;
+    }
+
+    await ensureNotificationChannelAsync();
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        body: 'Your check-in was delivered successfully.',
+        sound: 'default',
+        title: 'Message sent',
+      },
+      trigger: null,
+    });
+  } catch {
+    // The in-app confirmation remains available if notification sound is unavailable.
+  }
+}
+
 const styles = StyleSheet.create({
+  quickCheckInGrid: {
+    gap: 8,
+  },
+  quickCheckInOption: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D0DDD6',
+    borderRadius: 9,
+    borderWidth: 1,
+    gap: 2,
+    minHeight: 58,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  selectedQuickCheckInOption: {
+    backgroundColor: '#EEF1EC',
+    borderColor: '#829480',
+  },
+  quickCheckInTitle: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  quickCheckInDescription: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  quickNextStepPanel: {
+    backgroundColor: '#F7F7F5',
+    borderColor: '#D0DDD6',
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 9,
+    padding: 12,
+  },
+  quickNextStepTitle: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  quickNextStepCopy: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  quickContactLabel: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  quickContactList: {
+    gap: 7,
+  },
+  quickContactOption: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E7E6E2',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    minHeight: 52,
+    paddingHorizontal: 12,
+  },
+  quickContactAvatar: {
+    alignItems: 'center',
+    backgroundColor: '#E7E6E2',
+    borderRadius: 20,
+    height: 40,
+    justifyContent: 'center',
+    marginRight: 10,
+    overflow: 'hidden',
+    width: 40,
+  },
+  quickContactAvatarImage: {
+    height: 40,
+    width: 40,
+  },
+  quickContactAvatarInitial: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  selectedQuickContactOption: {
+    backgroundColor: '#EEF1EC',
+    borderColor: '#829480',
+  },
+  quickContactCopy: {
+    gap: 2,
+    flex: 1,
+  },
+  quickContactName: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  quickContactType: {
+    color: '#768277',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  quickNoContactsPanel: {
+    gap: 8,
+  },
+  quickNoContactsText: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+  },
+  quickReflectionInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E7E6E2',
+    borderRadius: 8,
+    borderWidth: 1,
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 15,
+    minHeight: 68,
+    padding: 10,
+  },
+  feedbackOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(23, 33, 31, 0.45)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  feedbackCard: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    gap: 10,
+    maxWidth: 360,
+    padding: 26,
+    width: '100%',
+  },
+  feedbackIcon: {
+    alignItems: 'center',
+    backgroundColor: '#2E4737',
+    borderRadius: 30,
+    height: 60,
+    justifyContent: 'center',
+    width: 60,
+  },
+  feedbackTitle: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 23,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  feedbackCopy: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  feedbackButton: {
+    alignItems: 'center',
+    backgroundColor: '#2E4737',
+    borderRadius: 10,
+    justifyContent: 'center',
+    marginTop: 6,
+    minHeight: 48,
+    paddingHorizontal: 28,
+    width: '100%',
+  },
+  feedbackButtonText: {
+    color: '#FFFFFF',
+    fontFamily: 'Manrope',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  safetyNote: {
+    color: '#6F3517',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  textButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  textButtonLabel: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F7F5',
   },
   keyboardArea: {
     flex: 1,
@@ -1585,6 +2174,7 @@ const styles = StyleSheet.create({
     gap: 18,
     minHeight: '100%',
     padding: 24,
+    paddingBottom: 136,
     paddingTop: 36,
   },
   centerPanel: {
@@ -1596,27 +2186,31 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'DM Mono',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#17211F',
-    fontSize: 34,
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 30,
     fontWeight: '900',
-    lineHeight: 39,
+    letterSpacing: -1.2,
+    lineHeight: 34,
   },
   copy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
-    borderRadius: 8,
+    borderColor: '#E7E6E2',
+    borderRadius: 10,
     borderWidth: 1,
     gap: 14,
     padding: 16,
@@ -1644,7 +2238,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   collapsibleSummary: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
   },
@@ -1652,12 +2247,14 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   panelTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 18,
     fontWeight: '900',
   },
   mutedText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
@@ -1665,14 +2262,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   partnerItem: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'hidden',
   },
   activePartnerItem: {
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
   },
   partnerCard: {
     alignItems: 'center',
@@ -1682,7 +2279,7 @@ const styles = StyleSheet.create({
   },
   smallAvatar: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 22,
     height: 44,
     justifyContent: 'center',
@@ -1694,7 +2291,8 @@ const styles = StyleSheet.create({
     width: 44,
   },
   smallAvatarInitial: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 17,
     fontWeight: '900',
   },
@@ -1703,17 +2301,19 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   partnerName: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '900',
   },
   partnerMeta: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   inlineActions: {
-    borderTopColor: '#ECE5D8',
+    borderTopColor: '#E7E6E2',
     borderTopWidth: 1,
     gap: 8,
     padding: 10,
@@ -1725,7 +2325,7 @@ const styles = StyleSheet.create({
   },
   inlinePrimaryButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
@@ -1734,12 +2334,13 @@ const styles = StyleSheet.create({
   },
   inlinePrimaryButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
   inlineSecondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1748,18 +2349,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   inlineSecondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
   inlineStatusText: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
   },
+  emptyStatePanel: {
+    gap: 12,
+    paddingVertical: 8,
+  },
+  inlineActivitySection: {
+    borderTopColor: '#E7E6E2',
+    borderTopWidth: 1,
+    gap: 8,
+    paddingTop: 14,
+  },
+  inlineActivityHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  inlineReplyItem: {
+    backgroundColor: '#F7F7F5',
+    borderRadius: 8,
+    gap: 3,
+    padding: 10,
+  },
+  inlineReplyTime: {
+    color: '#768277',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  inlineReplyBody: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    lineHeight: 20,
+  },
   inlineSectionTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
@@ -1772,7 +2409,7 @@ const styles = StyleSheet.create({
   },
   plannedItem: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 10,
@@ -1782,12 +2419,14 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   plannedItemTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
   plannedItemNote: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 12,
     lineHeight: 17,
   },
@@ -1797,7 +2436,7 @@ const styles = StyleSheet.create({
   },
   miniPrimaryButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
@@ -1806,12 +2445,13 @@ const styles = StyleSheet.create({
   },
   miniPrimaryButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '900',
   },
   miniSecondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1820,7 +2460,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   miniSecondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '900',
   },
@@ -1831,7 +2472,7 @@ const styles = StyleSheet.create({
   },
   avatarFrame: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 36,
     height: 72,
     justifyContent: 'center',
@@ -1843,7 +2484,8 @@ const styles = StyleSheet.create({
     width: 72,
   },
   avatarInitial: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 28,
     fontWeight: '900',
   },
@@ -1856,16 +2498,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inputLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
   },
   input: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12,
@@ -1885,14 +2529,15 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   timeZoneSummary: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 15,
     fontWeight: '800',
   },
   timeZoneToggle: {
     alignItems: 'center',
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1901,7 +2546,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   timeZoneToggleText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1911,19 +2557,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   timeZoneOption: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
   activeTimeZoneOption: {
-    backgroundColor: '#075A43',
-    borderColor: '#075A43',
+    backgroundColor: '#2E4737',
+    borderColor: '#2E4737',
   },
   timeZoneOptionText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -1935,8 +2582,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   pickerPanel: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -1953,20 +2600,22 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   pickerValueLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   pickerValueText: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 17,
     fontWeight: '900',
     textAlign: 'center',
   },
   stepperButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     height: 44,
     justifyContent: 'center',
@@ -1974,6 +2623,7 @@ const styles = StyleSheet.create({
   },
   stepperButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 22,
     fontWeight: '900',
   },
@@ -1983,7 +2633,7 @@ const styles = StyleSheet.create({
   },
   quickDateButton: {
     alignItems: 'center',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1992,11 +2642,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   activeQuickDateButton: {
-    backgroundColor: '#075A43',
-    borderColor: '#075A43',
+    backgroundColor: '#2E4737',
+    borderColor: '#2E4737',
   },
   quickDateButtonText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
     textAlign: 'center',
@@ -2005,15 +2656,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   pickerHint: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
     textAlign: 'center',
   },
   codePanel: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 6,
@@ -2030,7 +2682,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   codeText: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: 0,
@@ -2038,7 +2691,7 @@ const styles = StyleSheet.create({
   copyButton: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2048,7 +2701,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   copyButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -2057,8 +2711,8 @@ const styles = StyleSheet.create({
   },
   historyItem: {
     alignItems: 'center',
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -2072,24 +2726,27 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   historyTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
   historyPartner: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
   historyNote: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 13,
     lineHeight: 18,
   },
   historyAvatar: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#E7E6E2',
+    borderColor: '#E7E6E2',
     borderRadius: 22,
     borderWidth: 1,
     height: 44,
@@ -2102,13 +2759,14 @@ const styles = StyleSheet.create({
     width: 44,
   },
   historyAvatarInitial: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 17,
     fontWeight: '900',
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -2116,12 +2774,13 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '900',
   },
   smallButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 36,
@@ -2129,12 +2788,13 @@ const styles = StyleSheet.create({
   },
   smallButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -2142,7 +2802,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '900',
   },
@@ -2150,12 +2811,14 @@ const styles = StyleSheet.create({
     opacity: 0.64,
   },
   loadingText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
   },
   message: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,

@@ -2,28 +2,37 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Link, usePathname, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors } from '../theme/designTokens';
 
 const navigationItems = [
-  { activeBackground: '#E6F1EA', activeColor: '#075A43', href: '/', icon: 'home', label: 'Home', routes: ['/'] },
+  { activeBackground: '#EEF1EC', activeColor: '#2E4737', href: '/', icon: 'home', label: 'Home', routes: ['/'] },
   {
-    activeBackground: '#FFF3B8',
-    activeColor: '#806400',
+    activeBackground: '#EEF1EC',
+    activeColor: '#2E4737',
     href: '/event-planning',
     icon: 'assignment',
     label: 'Plan',
     routes: ['/event-planning', '/danger-zone-planning'],
   },
   {
-    activeBackground: '#DFF3F0',
-    activeColor: '#007C78',
+    activeBackground: '#EEF1EC',
+    activeColor: '#2E4737',
+    href: '/accountability',
+    icon: 'check-circle',
+    label: 'Check-in',
+    routes: ['/accountability'],
+  },
+  {
+    activeBackground: '#EEF1EC',
+    activeColor: '#2E4737',
     href: '/dallas-app-buddies',
     icon: 'groups',
     label: 'Buddies',
-    routes: ['/accountability', '/dallas-app-buddies'],
+    routes: ['/dallas-app-buddies'],
   },
   {
-    activeBackground: '#F8E3ED',
-    activeColor: '#B51E66',
+    activeBackground: '#EEF1EC',
+    activeColor: '#2E4737',
     href: '/profile',
     icon: 'person',
     label: 'Profile',
@@ -39,20 +48,21 @@ export function AppNavigation() {
 
   return (
     <View pointerEvents="box-none" style={styles.overlay}>
+      {canGoBack ? (
+        <View pointerEvents="box-none" style={[styles.topBar, { top: insets.top + 12 }]}>
+          <Pressable
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+            style={styles.topBackButton}
+            onPress={() => router.back()}
+          >
+            <MaterialIcons color={colors.quiet} name="arrow-back" size={21} />
+            <Text style={styles.topBackLabel}>Back</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={[styles.navigation, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <View style={styles.navigationRow}>
-          {canGoBack ? (
-            <Pressable
-              accessibilityLabel="Go back"
-              accessibilityRole="button"
-              style={styles.navigationItem}
-              onPress={() => router.back()}
-            >
-              <MaterialIcons color="#596760" name="arrow-back" size={24} />
-              <Text style={styles.label}>Back</Text>
-            </Pressable>
-          ) : null}
-
           {navigationItems.map((item) => {
             const active = item.routes.includes(pathname as never);
 
@@ -67,7 +77,7 @@ export function AppNavigation() {
                       : styles.navigationItem
                   }
                 >
-                  <MaterialIcons color={active ? item.activeColor : '#596760'} name={item.icon} size={25} />
+                  <MaterialIcons color={active ? item.activeColor : '#777777'} name={item.icon} size={25} />
                   <Text style={[styles.label, active && { color: item.activeColor }]}>{item.label}</Text>
                 </Pressable>
               </Link>
@@ -85,13 +95,43 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     right: 0,
+    top: 0,
+  },
+  topBar: {
+    left: 12,
+    position: 'absolute',
+    right: 12,
+    zIndex: 2,
+  },
+  topBackButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+  },
+  topBackLabel: {
+    color: colors.quiet,
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '700',
   },
   navigation: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderColor: '#E3E1DB',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderColor: colors.border,
     borderTopWidth: 1,
+    bottom: 0,
+    left: 0,
     paddingHorizontal: 12,
     paddingTop: 9,
+    position: 'absolute',
+    right: 0,
   },
   navigationRow: {
     alignItems: 'center',
@@ -108,8 +148,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   label: {
-    color: '#596760',
-    fontSize: 12,
-    fontWeight: '700',
+    color: colors.quiet,
+    fontFamily: 'Manrope',
+    fontSize: 11,
+    fontWeight: '600',
   },
 });

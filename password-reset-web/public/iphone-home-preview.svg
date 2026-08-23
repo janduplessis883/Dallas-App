@@ -19,23 +19,23 @@
     </linearGradient>
     <linearGradient id="accent" x1="274" x2="626" y1="380" y2="380" gradientUnits="userSpaceOnUse">
       <stop stop-color="#33d75a"/>
-      <stop offset=".28" stop-color="#ffd80a"/>
-      <stop offset=".5" stop-color="#ef5a38"/>
-      <stop offset=".72" stop-color="#22aee5"/>
-      <stop offset="1" stop-color="#31246e"/>
+      <stop offset=".28" stop-color="#eef1ec"/>
+      <stop offset=".5" stop-color="#a33d32"/>
+      <stop offset=".72" stop-color="#829480"/>
+      <stop offset="1" stop-color="#2e4737"/>
     </linearGradient>
     <linearGradient id="diamondAccent" x1="342" x2="598" y1="336" y2="336" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#35d45b"/>
-      <stop offset=".22" stop-color="#ffd80a"/>
-      <stop offset=".42" stop-color="#ef8eaa"/>
-      <stop offset=".62" stop-color="#22aee5"/>
-      <stop offset="1" stop-color="#31246e"/>
+      <stop stop-color="#829480"/>
+      <stop offset=".22" stop-color="#eef1ec"/>
+      <stop offset=".42" stop-color="#d9e8e3"/>
+      <stop offset=".62" stop-color="#829480"/>
+      <stop offset="1" stop-color="#2e4737"/>
     </linearGradient>
     <filter id="shadow" x="0" y="0" width="900" height="1120" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="46" stdDeviation="46" flood-color="#17211f" flood-opacity=".22"/>
+      <feDropShadow dx="0" dy="46" stdDeviation="46" flood-color="#171717" flood-opacity=".22"/>
     </filter>
     <filter id="softShadow" x="120" y="120" width="660" height="900" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#17211f" flood-opacity=".12"/>
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#171717" flood-opacity=".12"/>
     </filter>
   </defs>
 
@@ -51,32 +51,32 @@
       <path d="M265 348c64-70 131-104 200-104 75 0 133 43 174 129H267c-14 0-20-10-2-25Z" fill="#38635d" opacity=".9"/>
       <path d="M345 343c43-49 88-73 134-73 50 0 89 30 117 90H347c-10 0-14-7-2-17Z" fill="url(#diamondAccent)"/>
       <path d="M450 204c32 0 58 26 58 58s-26 58-58 58-58-26-58-58 26-58 58-58Z" fill="#fffaf0" opacity=".96"/>
-      <path d="M421 286c11 13 20 32 22 58h14c2-26 11-45 22-58-9 5-18 7-29 7s-20-2-29-7Z" fill="#17211f"/>
+      <path d="M421 286c11 13 20 32 22 58h14c2-26 11-45 22-58-9 5-18 7-29 7s-20-2-29-7Z" fill="#171717"/>
     </g>
 
-    <text x="202" y="466" fill="#17211f" font-family="Inter, Arial, sans-serif" font-size="45" font-weight="900">Today in Dallas</text>
-    <text x="202" y="506" fill="#5d6b66" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700">Stay close to the next right step.</text>
+    <text x="202" y="466" fill="#171717" font-family="Manrope, Arial, sans-serif" font-size="45" font-weight="900">Today in Dallas</text>
+    <text x="202" y="506" fill="#777777" font-family="Manrope, Arial, sans-serif" font-size="22" font-weight="700">Stay close to the next right step.</text>
 
     <rect x="202" y="548" width="496" height="114" rx="24" fill="#ffffff" stroke="#dfe7e2"/>
     <rect x="226" y="573" width="64" height="64" rx="18" fill="#fff7ca"/>
-    <text x="244" y="613" fill="#ef5a38" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">01</text>
-    <text x="316" y="598" fill="#17211f" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="900">Recovery plan</text>
-    <text x="316" y="631" fill="#66736e" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">Goals, triggers, coping actions.</text>
+    <text x="244" y="613" fill="#a33d32" font-family="Manrope, Arial, sans-serif" font-size="24" font-weight="900">01</text>
+    <text x="316" y="598" fill="#171717" font-family="Manrope, Arial, sans-serif" font-size="26" font-weight="900">Recovery plan</text>
+    <text x="316" y="631" fill="#768277" font-family="Manrope, Arial, sans-serif" font-size="18" font-weight="700">Goals, triggers, coping actions.</text>
 
     <rect x="202" y="688" width="496" height="114" rx="24" fill="#ffffff" stroke="#dfe7e2"/>
     <rect x="226" y="713" width="64" height="64" rx="18" fill="#e9f7ff"/>
-    <text x="244" y="753" fill="#22aee5" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="900">02</text>
-    <text x="316" y="738" fill="#17211f" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="900">Accountability</text>
-    <text x="316" y="771" fill="#66736e" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">Check-ins, partners, buddies.</text>
+    <text x="244" y="753" fill="#829480" font-family="Manrope, Arial, sans-serif" font-size="24" font-weight="900">02</text>
+    <text x="316" y="738" fill="#171717" font-family="Manrope, Arial, sans-serif" font-size="26" font-weight="900">Accountability</text>
+    <text x="316" y="771" fill="#768277" font-family="Manrope, Arial, sans-serif" font-size="18" font-weight="700">Check-ins, partners, buddies.</text>
 
-    <rect x="202" y="828" width="238" height="132" rx="28" fill="#31246e"/>
-    <text x="226" y="878" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="900">Next anchor</text>
-    <text x="226" y="912" fill="#dcebe4" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">Breathe, text Jan,</text>
-    <text x="226" y="940" fill="#dcebe4" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">walk for 10 min.</text>
+    <rect x="202" y="828" width="238" height="132" rx="28" fill="#2e4737"/>
+    <text x="226" y="878" fill="#ffffff" font-family="Manrope, Arial, sans-serif" font-size="23" font-weight="900">Next anchor</text>
+    <text x="226" y="912" fill="#eef1ec" font-family="Manrope, Arial, sans-serif" font-size="18" font-weight="700">Breathe, text Jan,</text>
+    <text x="226" y="940" fill="#eef1ec" font-family="Manrope, Arial, sans-serif" font-size="18" font-weight="700">walk for 10 min.</text>
 
     <rect x="460" y="828" width="238" height="132" rx="28" fill="#ffffff" stroke="#dfe7e2"/>
-    <text x="484" y="878" fill="#17211f" font-family="Inter, Arial, sans-serif" font-size="23" font-weight="900">Reminder</text>
-    <text x="484" y="912" fill="#66736e" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700">Tonight at 18:00</text>
+    <text x="484" y="878" fill="#171717" font-family="Manrope, Arial, sans-serif" font-size="23" font-weight="900">Reminder</text>
+    <text x="484" y="912" fill="#768277" font-family="Manrope, Arial, sans-serif" font-size="18" font-weight="700">Tonight at 18:00</text>
     <rect x="484" y="928" width="138" height="12" rx="6" fill="url(#accent)"/>
   </g>
 </svg>

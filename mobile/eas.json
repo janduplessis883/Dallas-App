@@ -11,6 +11,10 @@
     "preview": {
       "distribution": "internal"
     },
+    "build14": {
+      "extends": "production",
+      "autoIncrement": false
+    },
     "production": {
       "autoIncrement": true
     }

@@ -106,7 +106,7 @@ export default function ResetPasswordScreen() {
         <View style={styles.panel}>
           {initializing ? (
             <View style={styles.loadingRow}>
-              <ActivityIndicator color="#075A43" />
+              <ActivityIndicator color="#2E4737" />
               <Text style={styles.loadingText}>Checking recovery link...</Text>
             </View>
           ) : (
@@ -119,7 +119,7 @@ export default function ResetPasswordScreen() {
                   editable={recoveryReady && !loading}
                   onChangeText={setPassword}
                   placeholder="At least 6 characters"
-                  placeholderTextColor="#8A948F"
+                  placeholderTextColor="#768277"
                   secureTextEntry
                   style={styles.input}
                   textContentType="newPassword"
@@ -135,7 +135,7 @@ export default function ResetPasswordScreen() {
                   editable={recoveryReady && !loading}
                   onChangeText={setConfirmPassword}
                   placeholder="Repeat your new password"
-                  placeholderTextColor="#8A948F"
+                  placeholderTextColor="#768277"
                   secureTextEntry
                   style={styles.input}
                   textContentType="newPassword"
@@ -201,7 +201,7 @@ function appendParams(params: URLSearchParams, value: string) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F7F5',
   },
   container: {
     flex: 1,
@@ -210,26 +210,29 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 34,
     fontWeight: '800',
     lineHeight: 40,
   },
   copy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
@@ -241,7 +244,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   loadingText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -249,23 +253,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inputLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   input: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12,
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -276,12 +282,13 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -289,12 +296,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
   message: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 20,

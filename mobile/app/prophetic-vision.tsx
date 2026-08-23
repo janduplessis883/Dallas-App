@@ -408,7 +408,7 @@ export default function PropheticVisionScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#075A43" />
+          <ActivityIndicator color="#2E4737" />
           <Text style={styles.loadingText}>Loading Prophetic Vision...</Text>
         </View>
       </SafeAreaView>
@@ -486,7 +486,7 @@ export default function PropheticVisionScreen() {
                 multiline
                 onChangeText={setShortVersion}
                 placeholder="A clear one or two sentence vision for who you are becoming."
-                placeholderTextColor="#8A948F"
+                placeholderTextColor="#768277"
                 style={[styles.input, styles.shortInput]}
                 textAlignVertical="top"
                 value={shortVersion}
@@ -512,7 +512,7 @@ export default function PropheticVisionScreen() {
                 multiline
                 onChangeText={setLongVersion}
                 placeholder="Write the fuller version: values, identity, relationships, recovery commitments, and the life you are building."
-                placeholderTextColor="#8A948F"
+                placeholderTextColor="#768277"
                 style={[styles.input, styles.longInput]}
                 textAlignVertical="top"
                 value={longVersion}
@@ -681,7 +681,8 @@ function MarkdownPreview({ emptyText, value }: { emptyText: string; value: strin
 
 const markdownStyles = StyleSheet.create({
   body: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
@@ -689,44 +690,49 @@ const markdownStyles = StyleSheet.create({
     marginBottom: 4,
   },
   code_inline: {
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 4,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     paddingHorizontal: 4,
   },
   fence: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     padding: 10,
   },
   heading1: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 24,
     fontWeight: '900',
     lineHeight: 30,
     marginBottom: 8,
   },
   heading2: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 20,
     fontWeight: '900',
     lineHeight: 26,
     marginBottom: 6,
   },
   heading3: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 18,
     fontWeight: '900',
     lineHeight: 24,
     marginBottom: 4,
   },
   hr: {
-    backgroundColor: '#E3E1DB',
+    backgroundColor: '#E7E6E2',
     height: 1,
     marginVertical: 10,
   },
@@ -747,7 +753,7 @@ const markdownStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F7F5',
   },
   keyboardArea: {
     flex: 1,
@@ -757,6 +763,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: '100%',
     padding: 24,
+    paddingBottom: 136,
   },
   centerPanel: {
     alignItems: 'center',
@@ -767,20 +774,23 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 34,
     fontWeight: '800',
     lineHeight: 40,
   },
   copy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
@@ -801,7 +811,8 @@ const styles = StyleSheet.create({
     top: 12,
   },
   coverEditButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -821,7 +832,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   coverFallback: {
-    backgroundColor: '#17211F',
+    backgroundColor: '#171717',
     gap: 10,
     justifyContent: 'flex-end',
     minHeight: 260,
@@ -829,6 +840,7 @@ const styles = StyleSheet.create({
   },
   coverEyebrow: {
     color: '#D5DED9',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0,
@@ -836,25 +848,28 @@ const styles = StyleSheet.create({
   },
   coverTitle: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 34,
     fontWeight: '900',
     lineHeight: 39,
   },
   coverCopy: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 15,
     lineHeight: 22,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
     padding: 16,
   },
   panelTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -866,24 +881,26 @@ const styles = StyleSheet.create({
   },
   toggleButton: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 34,
     paddingHorizontal: 12,
   },
   toggleButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
   mutedText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
   playerPanel: {
-    backgroundColor: '#17211F',
+    backgroundColor: '#171717',
     borderRadius: 8,
     gap: 9,
     paddingHorizontal: 12,
@@ -903,7 +920,8 @@ const styles = StyleSheet.create({
     width: 58,
   },
   playButtonText: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '900',
   },
@@ -912,12 +930,13 @@ const styles = StyleSheet.create({
   },
   playerSubtitle: {
     color: '#D5DED9',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 16,
   },
   progressTrack: {
-    backgroundColor: '#4F5D58',
+    backgroundColor: '#777777',
     borderRadius: 3,
     height: 6,
     overflow: 'hidden',
@@ -929,13 +948,14 @@ const styles = StyleSheet.create({
   },
   timeText: {
     color: '#D5DED9',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
   },
   recordingRow: {
     alignItems: 'center',
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -950,23 +970,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   recordingDot: {
-    backgroundColor: '#8A948F',
+    backgroundColor: '#768277',
     borderRadius: 5,
     height: 10,
     width: 10,
   },
   activeRecordingDot: {
-    backgroundColor: '#B40B35',
+    backgroundColor: '#A33D32',
   },
   recordingText: {
-    color: '#4F5D58',
+    color: '#777777',
     flex: 1,
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
   },
   recordButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 42,
@@ -974,10 +995,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   stopButton: {
-    backgroundColor: '#B40B35',
+    backgroundColor: '#A33D32',
   },
   recordButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -987,7 +1009,7 @@ const styles = StyleSheet.create({
   },
   compactSecondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -996,13 +1018,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   compactSecondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
   compactRecordButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     flex: 1,
     justifyContent: 'center',
@@ -1016,25 +1039,27 @@ const styles = StyleSheet.create({
     minHeight: 18,
   },
   compactRecordingText: {
-    color: '#697570',
+    color: '#768277',
     flex: 1,
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   input: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 22,
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
   markdownPreview: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
@@ -1042,13 +1067,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   previewLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   previewEmpty: {
-    color: '#8A948F',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 15,
     fontStyle: 'italic',
     lineHeight: 22,
@@ -1061,7 +1088,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1069,12 +1096,13 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
   aiButton: {
     alignItems: 'center',
-    backgroundColor: '#17211F',
+    backgroundColor: '#171717',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1082,12 +1110,13 @@ const styles = StyleSheet.create({
   },
   aiButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1095,7 +1124,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -1103,12 +1133,14 @@ const styles = StyleSheet.create({
     opacity: 0.64,
   },
   loadingText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
   },
   message: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 20,

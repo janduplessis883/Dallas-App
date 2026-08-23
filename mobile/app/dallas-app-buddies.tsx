@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,7 +15,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { Link } from 'expo-router';
+import { Link, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
@@ -28,6 +30,7 @@ type BuddyPartner = {
   created_at: string;
   id: string;
   location: string | null;
+  mobile_number: string | null;
   name: string;
   notes: string | null;
   partner_kind: 'external' | 'dallas_user';
@@ -62,6 +65,22 @@ type BuddySettings = {
   location: string;
   notes: string;
   timeZone: string;
+};
+
+type BuddySection = 'chat' | 'check-ins' | 'details';
+
+type BuddySummary = {
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+  nextCheckIn: string | null;
+  unreadCount: number;
+};
+
+type LatestBuddyMessage = {
+  body: string;
+  buddyId: string;
+  createdAt: string;
+  senderUserId: string;
 };
 
 const emptySettings: BuddySettings = {
@@ -106,23 +125,41 @@ async function getFunctionErrorMessage(error: unknown) {
 }
 
 export default function DallasAppBuddiesScreen() {
+  const { buddyId } = useLocalSearchParams<{ buddyId?: string }>();
   const [appConnectLookup, setAppConnectLookup] = useState('');
+  const [newBuddyName, setNewBuddyName] = useState('');
+  const [newBuddyMobile, setNewBuddyMobile] = useState('');
+  const [newBuddyRelationship, setNewBuddyRelationship] = useState('');
+  const [newBuddyLocation, setNewBuddyLocation] = useState('');
+  const [addingExternalBuddy, setAddingExternalBuddy] = useState(false);
   const [buddies, setBuddies] = useState<BuddyPartner[]>([]);
   const [buddyProfiles, setBuddyProfiles] = useState<Record<string, BuddyProfile>>({});
+  const [buddySummaries, setBuddySummaries] = useState<Record<string, BuddySummary>>({});
   const [connectingAppUser, setConnectingAppUser] = useState(false);
   const [dallasCode, setDallasCode] = useState('');
   const [expandedBuddyId, setExpandedBuddyId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<BuddyMessage[]>([]);
   const [messageText, setMessageText] = useState('');
+  const [latestMessage, setLatestMessage] = useState<LatestBuddyMessage | null>(null);
+  const [composerExpanded, setComposerExpanded] = useState(false);
   const [plannedCheckIns, setPlannedCheckIns] = useState<PlannedCheckIn[]>([]);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [deletingBuddy, setDeletingBuddy] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [settings, setSettings] = useState<BuddySettings>(emptySettings);
   const [session, setSession] = useState<Session | null>(null);
-  const [showConnectSection, setShowConnectSection] = useState(true);
+  const [showConnectSection, setShowConnectSection] = useState(false);
   const [showTimeZoneOptions, setShowTimeZoneOptions] = useState(false);
+  const [activeBuddySection, setActiveBuddySection] = useState<BuddySection>('chat');
+  const [editingPlannedCheckInId, setEditingPlannedCheckInId] = useState<string | null>(null);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const messageScrollViewRef = useRef<ScrollView | null>(null);
+  const buddyOffsets = useRef<Record<string, number>>({});
+  const jumpToChatBottomRef = useRef(false);
 
   const expandedBuddy = useMemo(
     () => buddies.find((buddy) => buddy.id === expandedBuddyId) ?? null,
@@ -147,12 +184,18 @@ export default function DallasAppBuddiesScreen() {
         return;
       }
 
-      await Promise.all([
-        loadDallasCode(),
-        loadBuddies(nextSession.user.id, mounted),
-        markBuddyMessagesRead(nextSession.user.id),
-        syncGrantedPushTokenAsync(nextSession.user.id).catch(() => null),
-      ]);
+      try {
+        await Promise.all([
+          loadDallasCode(),
+          loadBuddies(nextSession.user.id, mounted),
+          markBuddyMessagesRead(nextSession.user.id),
+          syncGrantedPushTokenAsync(nextSession.user.id).catch(() => null),
+        ]);
+      } catch (error) {
+        if (mounted) {
+          setLoadError(error instanceof Error ? error.message : 'Could not load Dallas App Buddies.');
+        }
+      }
       setLoading(false);
     }
 
@@ -162,6 +205,57 @@ export default function DallasAppBuddiesScreen() {
       mounted = false;
     };
   }, []);
+
+  useFocusEffect(useCallback(() => {
+    if (!session) {
+      return undefined;
+    }
+
+    const userId = session.user.id;
+    let mounted = true;
+
+    async function refreshBuddyPage() {
+      await loadBuddies(userId, mounted);
+
+      if (mounted && expandedBuddy) {
+        await loadMessages(expandedBuddy.app_connection_id, mounted);
+      }
+    }
+
+    refreshBuddyPage();
+
+    return () => {
+      mounted = false;
+    };
+  }, [expandedBuddyId, session]));
+
+  useEffect(() => {
+    if (!jumpToChatBottomRef.current || activeBuddySection !== 'chat' || !messages.length) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      messageScrollViewRef.current?.scrollToEnd({ animated: true });
+      jumpToChatBottomRef.current = false;
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [activeBuddySection, messages.length, messages[messages.length - 1]?.id]);
+
+  async function retryLoad() {
+    if (!session) {
+      return;
+    }
+    setLoadError('');
+    setLoading(true);
+    try {
+      await loadBuddies(session.user.id);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Could not load Dallas App Buddies.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function loadDallasCode() {
     const { data, error } = await supabase.functions.invoke('accountability-app', {
@@ -182,10 +276,9 @@ export default function DallasAppBuddiesScreen() {
     const { data, error } = await supabase
       .from('accountability_partners')
       .select(
-        'app_connection_id, avatar_path, check_in_at, connected_user_id, created_at, id, location, name, notes, partner_kind, relationship, time_zone',
+        'app_connection_id, avatar_path, check_in_at, connected_user_id, created_at, id, location, mobile_number, name, notes, partner_kind, relationship, time_zone',
       )
       .eq('user_id', userId)
-      .eq('partner_kind', 'dallas_user')
       .order('created_at', { ascending: false });
 
     if (!mounted) {
@@ -200,10 +293,89 @@ export default function DallasAppBuddiesScreen() {
     const nextBuddies = data ?? [];
     setBuddies(nextBuddies);
     await loadBuddyProfiles(nextBuddies, mounted);
+    await loadBuddySummaries(nextBuddies, userId, mounted);
 
     if (!expandedBuddyId && nextBuddies[0]) {
-      handleToggleBuddy(nextBuddies[0]);
+      handleToggleBuddy(nextBuddies.find((buddy) => buddy.id === buddyId) ?? nextBuddies[0]);
     }
+  }
+
+  async function loadBuddySummaries(nextBuddies: BuddyPartner[], userId: string, mounted = true) {
+    const connectionIds = nextBuddies
+      .map((buddy) => buddy.app_connection_id)
+      .filter((connectionId): connectionId is string => Boolean(connectionId));
+    const partnerIds = nextBuddies.map((buddy) => buddy.id);
+
+    const [messageResults, receivedMessageResults, unreadResults, checkInResult] = await Promise.all([
+      Promise.all(connectionIds.map((connectionId) => supabase
+        .from('accountability_app_messages')
+        .select('body, created_at, sender_user_id')
+        .eq('connection_id', connectionId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then((result) => ({ connectionId, message: result.data })))),
+      Promise.all(connectionIds.map((connectionId) => supabase
+        .from('accountability_app_messages')
+        .select('body, created_at, sender_user_id')
+        .eq('connection_id', connectionId)
+        .neq('sender_user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then((result) => ({ connectionId, message: result.data })))),
+      Promise.all(connectionIds.map((connectionId) => supabase
+        .from('accountability_app_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('connection_id', connectionId)
+        .neq('sender_user_id', userId)
+        .is('read_at', null)
+        .then((result) => ({ connectionId, count: result.count ?? 0 })))),
+      supabase
+        .from('accountability_planned_check_ins')
+        .select('partner_id, scheduled_at')
+        .eq('user_id', userId)
+        .in('partner_id', partnerIds)
+        .gte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true }),
+    ]);
+
+    if (!mounted) {
+      return;
+    }
+
+    const nextSummaries = nextBuddies.reduce<Record<string, BuddySummary>>((summaries, buddy) => {
+      const lastMessage = messageResults.find((result) => result.connectionId === buddy.app_connection_id)?.message;
+      const unreadCount = unreadResults.find((result) => result.connectionId === buddy.app_connection_id)?.count ?? 0;
+      const nextCheckIn = (checkInResult.data ?? []).find((checkIn) => checkIn.partner_id === buddy.id)?.scheduled_at ?? null;
+
+      summaries[buddy.id] = {
+        lastMessage: lastMessage?.body ?? null,
+        lastMessageAt: lastMessage?.created_at ?? null,
+        nextCheckIn,
+        unreadCount,
+      };
+      return summaries;
+    }, {});
+
+    const newestMessage = receivedMessageResults
+      .map((result) => {
+        const buddy = nextBuddies.find((candidate) => candidate.app_connection_id === result.connectionId);
+
+        return buddy && result.message
+          ? {
+              body: result.message.body,
+              buddyId: buddy.id,
+              createdAt: result.message.created_at,
+              senderUserId: result.message.sender_user_id,
+            }
+          : null;
+      })
+      .filter((message): message is LatestBuddyMessage => Boolean(message))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] ?? null;
+
+    setLatestMessage(newestMessage);
+    setBuddySummaries(nextSummaries);
   }
 
   async function loadBuddyProfiles(nextBuddies: BuddyPartner[], mounted = true) {
@@ -337,6 +509,91 @@ export default function DallasAppBuddiesScreen() {
     setMessage('Dallas App Buddy connected.');
   }
 
+  async function handleAddExternalBuddy() {
+    if (!session) {
+      return;
+    }
+
+    const name = newBuddyName.trim();
+    const mobileNumber = newBuddyMobile.trim();
+
+    if (!name || !mobileNumber) {
+      setMessage('Enter a name and mobile number to add an outside-app buddy.');
+      return;
+    }
+
+    setAddingExternalBuddy(true);
+    setMessage('');
+    const { error } = await supabase.from('accountability_partners').insert({
+      location: newBuddyLocation.trim() || null,
+      mobile_number: mobileNumber,
+      name,
+      phone: mobileNumber,
+      partner_kind: 'external',
+      relationship: newBuddyRelationship.trim() || null,
+      time_zone: 'Europe/London',
+      user_id: session.user.id,
+    });
+    setAddingExternalBuddy(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setNewBuddyName('');
+    setNewBuddyMobile('');
+    setNewBuddyRelationship('');
+    setNewBuddyLocation('');
+    await loadBuddies(session.user.id);
+    setMessage('Buddy added. Use Messages to send their first check-in.');
+  }
+
+  async function handleMessageExternalBuddy() {
+    if (!session || !expandedBuddy?.mobile_number) {
+      setMessage('Add a mobile number for this buddy first.');
+      return;
+    }
+
+    const body = messageText.trim() || `Hi ${expandedBuddy.name}, checking in from Dallas. How are you doing?`;
+    const { data: thread, error: threadError } = await supabase
+      .from('accountability_check_in_threads')
+      .insert({
+        partner_id: expandedBuddy.id,
+        user_display_name: session.user.user_metadata?.display_name || session.user.email || 'Dallas user',
+        user_id: session.user.id,
+      })
+      .select('id, partner_token')
+      .single();
+
+    if (threadError) {
+      setMessage(threadError.message);
+      return;
+    }
+
+    const { error: messageError } = await supabase.from('accountability_check_in_messages').insert({
+      body,
+      partner_id: expandedBuddy.id,
+      sender_type: 'user',
+      thread_id: thread.id,
+      user_id: session.user.id,
+    });
+
+    if (messageError) {
+      setMessage(messageError.message);
+      return;
+    }
+
+    const replyUrl = `https://dallas-app.onrender.com/check-in-reply/?token=${encodeURIComponent(thread.partner_token)}`;
+    const url = `sms:${expandedBuddy.mobile_number}?body=${encodeURIComponent(`${body}\n\nReply here: ${replyUrl}`)}`;
+    if (await Linking.canOpenURL(url)) {
+      await Linking.openURL(url);
+      setMessage('Message opened in Messages.');
+    } else {
+      setMessage('This device cannot open Messages.');
+    }
+  }
+
   async function handleCopyDallasCode() {
     if (!dallasCode) {
       setMessage('Dallas PIN is still being created.');
@@ -350,9 +607,12 @@ export default function DallasAppBuddiesScreen() {
   function handleToggleBuddy(buddy: BuddyPartner) {
     const nextExpandedId = expandedBuddyId === buddy.id ? '' : buddy.id;
     setExpandedBuddyId(nextExpandedId);
+    setActiveBuddySection('chat');
     setMessage('');
     setMessageText('');
+    setComposerExpanded(false);
     setShowTimeZoneOptions(false);
+    setEditingPlannedCheckInId(null);
 
     if (!nextExpandedId) {
       setMessages([]);
@@ -369,6 +629,33 @@ export default function DallasAppBuddiesScreen() {
     });
     loadMessages(buddy.app_connection_id);
     loadPlannedCheckIns(buddy.id);
+  }
+
+  function handleJumpToLatestMessage() {
+    if (!latestMessage) {
+      return;
+    }
+
+    const buddy = buddies.find((candidate) => candidate.id === latestMessage.buddyId);
+
+    if (!buddy) {
+      return;
+    }
+
+    jumpToChatBottomRef.current = true;
+
+    if (expandedBuddyId !== buddy.id) {
+      handleToggleBuddy(buddy);
+    } else {
+      setActiveBuddySection('chat');
+    }
+
+    requestAnimationFrame(() => {
+      const offset = buddyOffsets.current[buddy.id];
+      if (typeof offset === 'number') {
+        scrollViewRef.current?.scrollTo({ animated: true, y: Math.max(0, offset - 18) });
+      }
+    });
   }
 
   function updateSetting(key: keyof BuddySettings, value: string) {
@@ -409,6 +696,36 @@ export default function DallasAppBuddiesScreen() {
     setMessage('Buddy settings saved.');
   }
 
+  async function handleDeleteBuddy() {
+    if (!session || !expandedBuddy) {
+      return;
+    }
+
+    setDeletingBuddy(true);
+    setMessage('');
+
+    const { error } = await supabase
+      .from('accountability_partners')
+      .delete()
+      .eq('id', expandedBuddy.id)
+      .eq('user_id', session.user.id);
+
+    setDeletingBuddy(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setShowDeleteDialog(false);
+    setExpandedBuddyId('');
+    setMessages([]);
+    setPlannedCheckIns([]);
+    setSettings(emptySettings);
+    await loadBuddies(session.user.id);
+    setMessage('Buddy deleted.');
+  }
+
   async function handleAddPlannedCheckIn() {
     if (!session || !expandedBuddy) {
       return;
@@ -421,12 +738,19 @@ export default function DallasAppBuddiesScreen() {
       return;
     }
 
-    const { error } = await supabase.from('accountability_planned_check_ins').insert({
-      note: settings.notes.trim() || null,
-      partner_id: expandedBuddy.id,
-      scheduled_at: scheduledAt,
-      user_id: session.user.id,
-    });
+    const query = editingPlannedCheckInId
+      ? supabase
+        .from('accountability_planned_check_ins')
+        .update({ note: settings.notes.trim() || null, scheduled_at: scheduledAt, updated_at: new Date().toISOString() })
+        .eq('id', editingPlannedCheckInId)
+        .eq('partner_id', expandedBuddy.id)
+      : supabase.from('accountability_planned_check_ins').insert({
+        note: settings.notes.trim() || null,
+        partner_id: expandedBuddy.id,
+        scheduled_at: scheduledAt,
+        user_id: session.user.id,
+      });
+    const { error } = await query;
 
     if (error) {
       setMessage(await getFunctionErrorMessage(error));
@@ -434,7 +758,19 @@ export default function DallasAppBuddiesScreen() {
     }
 
     await loadPlannedCheckIns(expandedBuddy.id);
-    setMessage('Planned check-in added.');
+    setEditingPlannedCheckInId(null);
+    setMessage(editingPlannedCheckInId ? 'Planned check-in updated.' : 'Planned check-in added.');
+  }
+
+  function handleEditPlannedCheckIn(plannedCheckIn: PlannedCheckIn) {
+    setEditingPlannedCheckInId(plannedCheckIn.id);
+    setSettings((current) => ({
+      ...current,
+      checkInDate: formatDateInput(plannedCheckIn.scheduled_at),
+      checkInTime: formatTimeInput(plannedCheckIn.scheduled_at) || '18:00',
+      notes: plannedCheckIn.note ?? current.notes,
+    }));
+    setMessage('Update the date or time, then save the planned check-in.');
   }
 
   async function handleRemovePlannedCheckIn(plannedCheckIn: PlannedCheckIn) {
@@ -450,6 +786,9 @@ export default function DallasAppBuddiesScreen() {
     }
 
     await loadPlannedCheckIns(plannedCheckIn.partner_id);
+    if (editingPlannedCheckInId === plannedCheckIn.id) {
+      setEditingPlannedCheckInId(null);
+    }
     setMessage('Planned check-in removed.');
   }
 
@@ -484,7 +823,9 @@ export default function DallasAppBuddiesScreen() {
     }
 
     setMessageText('');
+    jumpToChatBottomRef.current = true;
     await loadMessages(expandedBuddy.app_connection_id);
+    await loadBuddySummaries(buddies, session.user.id);
   }
 
   function updateCheckInDate(nextDate: Date) {
@@ -512,7 +853,7 @@ export default function DallasAppBuddiesScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#075A43" />
+          <ActivityIndicator color="#2E4737" />
           <Text style={styles.loadingText}>Loading Dallas App Buddies...</Text>
         </View>
       </SafeAreaView>
@@ -536,15 +877,56 @@ export default function DallasAppBuddiesScreen() {
     );
   }
 
+  const latestBuddy = latestMessage ? buddies.find((buddy) => buddy.id === latestMessage.buddyId) ?? null : null;
+  const latestBuddyProfile = latestBuddy?.connected_user_id ? buddyProfiles[latestBuddy.connected_user_id] : undefined;
+  const latestSenderName = latestMessage && latestMessage.senderUserId === session.user.id
+    ? 'You'
+    : latestBuddyProfile?.display_name || latestBuddy?.name || 'Your buddy';
+
   return (
     <SafeAreaView style={styles.screen}>
+      <Modal
+        animationType="fade"
+        transparent
+        visible={showDeleteDialog}
+        onRequestClose={() => {
+          if (!deletingBuddy) {
+            setShowDeleteDialog(false);
+          }
+        }}
+      >
+        <View style={styles.deleteOverlay}>
+          <View style={styles.deleteDialog}>
+            <Text style={styles.deleteTitle}>Delete {expandedBuddy?.name ?? 'this buddy'}?</Text>
+            <Text style={styles.deleteCopy}>
+              This removes the buddy and their check-ins, planned check-ins, and web reply history from your account.
+            </Text>
+            <View style={styles.deleteActions}>
+              <Pressable
+                disabled={deletingBuddy}
+                style={styles.secondaryButton}
+                onPress={() => setShowDeleteDialog(false)}
+              >
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                disabled={deletingBuddy}
+                style={[styles.dangerButton, deletingBuddy && styles.disabledButton]}
+                onPress={handleDeleteBuddy}
+              >
+                <Text style={styles.dangerButtonText}>{deletingBuddy ? 'Deleting...' : 'Delete buddy'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardArea}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollViewRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <Text style={styles.eyebrow}>Dallas App Buddies</Text>
           <Text style={styles.title}>Dallas App Buddies</Text>
           <Text style={styles.copy}>
-            Connect Dallas users here, then open a buddy to view messages, plan check-ins, and keep their settings
-            current.
+            Add every accountability buddy here. In-app buddies connect with a Dallas PIN; outside-app buddies receive
+            a message with a secure web reply link.
           </Text>
 
           <View style={styles.panel}>
@@ -554,10 +936,10 @@ export default function DallasAppBuddiesScreen() {
               style={styles.connectHeader}
               onPress={() => setShowConnectSection((visible) => !visible)}
             >
-              <MaterialIcons color="#075A43" name={showConnectSection ? 'expand-less' : 'expand-more'} size={24} />
+              <MaterialIcons color="#2E4737" name={showConnectSection ? 'expand-less' : 'expand-more'} size={24} />
               <View style={styles.connectTitleCopy}>
-                <Text style={styles.sectionTitle}>Connect Dallas App Buddies</Text>
-                <Text style={styles.connectSummary}>{buddies.length} connected</Text>
+                <Text style={styles.sectionTitle}>Add a buddy</Text>
+                <Text style={styles.connectSummary}>{buddies.length} saved</Text>
               </View>
             </Pressable>
 
@@ -578,7 +960,7 @@ export default function DallasAppBuddiesScreen() {
                       style={[styles.copyButton, !dallasCode && styles.disabledButton]}
                       onPress={handleCopyDallasCode}
                     >
-                      <MaterialIcons color="#075A43" name="content-copy" size={18} />
+                      <MaterialIcons color="#2E4737" name="content-copy" size={18} />
                       <Text style={styles.copyButtonText}>Copy</Text>
                     </Pressable>
                   </View>
@@ -596,20 +978,84 @@ export default function DallasAppBuddiesScreen() {
                 >
                   <Text style={styles.buttonText}>{connectingAppUser ? 'Connecting...' : 'Connect Dallas user'}</Text>
                 </Pressable>
+                <View style={styles.addBuddyDivider} />
+                <Text style={styles.sectionTitle}>Add someone outside the app</Text>
+                <Text style={styles.mutedText}>They will receive a message and use the web interface to reply.</Text>
+                <Field label="Name" placeholder="Their name" value={newBuddyName} onChangeText={setNewBuddyName} />
+                <Field
+                  inputMode="tel"
+                  label="Mobile number"
+                  placeholder="+441234567890"
+                  value={newBuddyMobile}
+                  onChangeText={setNewBuddyMobile}
+                />
+                <Field
+                  label="Relationship"
+                  placeholder="Friend, sponsor, coach..."
+                  value={newBuddyRelationship}
+                  onChangeText={setNewBuddyRelationship}
+                />
+                <Field label="Location" placeholder="Optional" value={newBuddyLocation} onChangeText={setNewBuddyLocation} />
+                <Pressable
+                  disabled={addingExternalBuddy}
+                  style={[styles.button, addingExternalBuddy && styles.disabledButton]}
+                  onPress={handleAddExternalBuddy}
+                >
+                  <Text style={styles.buttonText}>{addingExternalBuddy ? 'Adding...' : 'Add outside-app buddy'}</Text>
+                </Pressable>
               </View>
             ) : null}
           </View>
 
-          {buddies.length ? (
+          {latestMessage && latestBuddy ? (
+            <View style={styles.latestMessageCard}>
+              <View style={styles.latestMessageHeader}>
+                <View style={styles.latestMessageAvatar}>
+                  {latestBuddyProfile?.avatar_path ? (
+                    <Image
+                      source={{ uri: getPublicAvatarUrl(latestBuddyProfile.avatar_path) }}
+                      style={styles.latestMessageAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.latestMessageAvatarInitial}>{getInitial(latestSenderName)}</Text>
+                  )}
+                </View>
+                <View style={styles.latestMessageCopy}>
+                  <Text style={styles.latestMessageEyebrow}>Latest message from {latestSenderName}</Text>
+                  <Text numberOfLines={2} style={styles.latestMessageBody}>{latestMessage.body}</Text>
+                  <Text style={styles.latestMessageTime}>{formatRelativeTime(latestMessage.createdAt)}</Text>
+                </View>
+              </View>
+              <Pressable style={styles.latestMessageButton} onPress={handleJumpToLatestMessage}>
+                <MaterialIcons color="#FFFFFF" name="forum" size={18} />
+                <Text style={styles.latestMessageButtonText}>Jump to conversation</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {loadError ? (
+            <View style={styles.errorPanel}>
+              <Text style={styles.errorTitle}>We could not load your buddies</Text>
+              <Text style={styles.errorText}>{loadError}</Text>
+              <Pressable style={styles.secondaryButton} onPress={retryLoad}><Text style={styles.secondaryButtonText}>Try again</Text></Pressable>
+            </View>
+          ) : buddies.length ? (
             <View style={styles.buddyList}>
               {buddies.map((buddy) => {
                 const expanded = buddy.id === expandedBuddyId;
                 const profile = buddy.connected_user_id ? buddyProfiles[buddy.connected_user_id] : undefined;
                 const avatarUrl = profile?.avatar_path ? getPublicAvatarUrl(profile.avatar_path) : '';
                 const displayName = profile?.display_name || buddy.name;
+                const summary = buddySummaries[buddy.id];
 
                 return (
-                  <View key={buddy.id} style={[styles.buddyItem, expanded && styles.activeBuddyItem]}>
+                  <View
+                    key={buddy.id}
+                    style={[styles.buddyItem, expanded && styles.activeBuddyItem]}
+                    onLayout={(event) => {
+                      buddyOffsets.current[buddy.id] = event.nativeEvent.layout.y;
+                    }}
+                  >
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{ expanded }}
@@ -626,17 +1072,49 @@ export default function DallasAppBuddiesScreen() {
                       <View style={styles.buddyHeaderCopy}>
                         <Text style={styles.buddyName}>{displayName}</Text>
                         <Text style={styles.buddyMeta}>
-                          {[settingsLabel(buddy), getLocalTime(buddy.time_zone)].filter(Boolean).join(' - ') ||
-                            'Dallas app buddy'}
+                          {[settingsLabel(buddy), getLocalTime(buddy.time_zone)].filter(Boolean).join(' · ')}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.buddyPreview}>
+                          {summary?.lastMessage || 'No messages yet'}
+                          {summary?.lastMessageAt ? ` · ${formatRelativeTime(summary.lastMessageAt)}` : ''}
                         </Text>
                       </View>
-                      <MaterialIcons color="#075A43" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
+                      {summary?.unreadCount ? (
+                        <View style={styles.unreadBadge}>
+                          <Text style={styles.unreadBadgeText}>{summary.unreadCount > 99 ? '99+' : summary.unreadCount}</Text>
+                        </View>
+                      ) : null}
+                      <MaterialIcons color="#2E4737" name={expanded ? 'expand-less' : 'expand-more'} size={24} />
                     </Pressable>
 
                     {expanded ? (
                       <View style={styles.buddyBody}>
-                        <View style={styles.plannedSection}>
+                        <View style={styles.buddyTabs} accessibilityRole="tablist">
+                          {([
+                            ['chat', 'Chat'],
+                            ['check-ins', 'Check-ins'],
+                            ['details', 'Details'],
+                          ] as const).map(([key, label]) => (
+                            <Pressable
+                              key={key}
+                              accessibilityRole="tab"
+                              accessibilityState={{ selected: activeBuddySection === key }}
+                              style={[styles.buddyTab, activeBuddySection === key && styles.activeBuddyTab]}
+                              onPress={() => setActiveBuddySection(key)}
+                            >
+                              <Text style={[styles.buddyTabText, activeBuddySection === key && styles.activeBuddyTabText]}>{label}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+
+                        {activeBuddySection === 'check-ins' ? <View style={styles.plannedSection}>
                           <Text style={styles.sectionTitle}>Planned check-ins</Text>
+                          {summary?.nextCheckIn ? (
+                            <View style={styles.nextCheckInBanner}>
+                              <MaterialIcons color="#829480" name="schedule" size={18} />
+                              <Text style={styles.nextCheckInText}>Next: {formatRelativeTime(summary.nextCheckIn)}</Text>
+                            </View>
+                          ) : null}
                           {plannedCheckIns.length ? (
                             <View style={styles.plannedList}>
                               {plannedCheckIns.map((plannedCheckIn) => (
@@ -645,12 +1123,17 @@ export default function DallasAppBuddiesScreen() {
                                   {plannedCheckIn.note ? (
                                     <Text style={styles.plannedNote}>{plannedCheckIn.note}</Text>
                                   ) : null}
+                                  <View style={styles.plannedActions}>
+                                    <Pressable style={styles.miniSecondaryButton} onPress={() => handleEditPlannedCheckIn(plannedCheckIn)}>
+                                      <Text style={styles.miniSecondaryButtonText}>Edit</Text>
+                                    </Pressable>
                                   <Pressable
                                     style={styles.secondaryButton}
                                     onPress={() => handleRemovePlannedCheckIn(plannedCheckIn)}
                                   >
                                     <Text style={styles.secondaryButtonText}>Remove</Text>
                                   </Pressable>
+                                  </View>
                                 </View>
                               ))}
                             </View>
@@ -708,15 +1191,28 @@ export default function DallasAppBuddiesScreen() {
                             </View>
 
                             <Pressable style={styles.button} onPress={handleAddPlannedCheckIn}>
-                              <Text style={styles.buttonText}>Add planned check-in</Text>
+                              <Text style={styles.buttonText}>{editingPlannedCheckInId ? 'Save planned check-in' : 'Add planned check-in'}</Text>
                             </Pressable>
+                            {editingPlannedCheckInId ? (
+                              <Pressable style={styles.expandComposerButton} onPress={() => setEditingPlannedCheckInId(null)}>
+                                <Text style={styles.expandComposerText}>Cancel edit</Text>
+                              </Pressable>
+                            ) : null}
                           </View>
-                        </View>
+                        </View> : null}
 
-                        <View style={styles.messagePanel}>
-                          <Text style={styles.sectionTitle}>Message {displayName}</Text>
+                        {activeBuddySection === 'chat' ? <View style={styles.messagePanel}>
+                          <Text style={styles.sectionTitle}>{buddy.partner_kind === 'dallas_user' ? `Message ${displayName}` : `Message ${displayName} via Messages`}</Text>
+                          {buddy.partner_kind !== 'dallas_user' ? (
+                            <Text style={styles.mutedText}>Your message includes a secure web link so they can reply without the app.</Text>
+                          ) : null}
                           {messages.length ? (
-                            <View style={styles.messageList}>
+                            <ScrollView
+                              ref={messageScrollViewRef}
+                              nestedScrollEnabled
+                              style={styles.messageHistory}
+                              contentContainerStyle={styles.messageList}
+                            >
                               {messages.map((buddyMessage) => {
                                 const isMine = buddyMessage.sender_user_id === session.user.id;
 
@@ -734,30 +1230,45 @@ export default function DallasAppBuddiesScreen() {
                                   </View>
                                 );
                               })}
-                            </View>
+                            </ScrollView>
                           ) : (
-                            <Text style={styles.mutedText}>No messages yet.</Text>
+                            <View style={styles.chatEmptyState}>
+                              <Text style={styles.chatEmptyTitle}>Start the conversation</Text>
+                              <Text style={styles.mutedText}>A short, honest message can make the next check-in easier.</Text>
+                            </View>
                           )}
 
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            <View style={styles.quickMessageRow}>
+                            {['I’m okay', 'Can we talk?', 'Can we check in later?'].map((quickMessage) => (
+                              <Pressable key={quickMessage} style={styles.quickMessageButton} onPress={() => setMessageText(quickMessage)}>
+                                <Text style={styles.quickMessageText}>{quickMessage}</Text>
+                              </Pressable>
+                            ))}
+                            </View>
+                          </ScrollView>
                           <Field
                             label="Message"
-                            multiline
+                            multiline={composerExpanded}
                             placeholder="Send a check-in or encouragement..."
                             value={messageText}
                             onChangeText={setMessageText}
                           />
+                          <Pressable style={styles.expandComposerButton} onPress={() => setComposerExpanded((expanded) => !expanded)}>
+                            <Text style={styles.expandComposerText}>{composerExpanded ? 'Use compact composer' : 'Expand composer'}</Text>
+                          </Pressable>
                           <Pressable
                             disabled={sendingMessage}
                             style={[styles.button, sendingMessage && styles.disabledButton]}
-                            onPress={handleSendMessage}
+                            onPress={buddy.partner_kind === 'dallas_user' ? handleSendMessage : handleMessageExternalBuddy}
                           >
                             <Text style={styles.buttonText}>
-                              {sendingMessage ? 'Sending...' : 'Send in-app message'}
+                              {sendingMessage ? 'Sending...' : buddy.partner_kind === 'dallas_user' ? 'Send in-app message' : 'Open message'}
                             </Text>
                           </Pressable>
-                        </View>
+                        </View> : null}
 
-                        <View style={styles.settingsPanel}>
+                        {activeBuddySection === 'details' ? <View style={styles.settingsPanel}>
                           <Text style={styles.sectionTitle}>Buddy settings</Text>
                           <Field
                             label="Location"
@@ -777,7 +1288,7 @@ export default function DallasAppBuddiesScreen() {
                                 onPress={() => setShowTimeZoneOptions((visible) => !visible)}
                               >
                                 <MaterialIcons
-                                  color="#075A43"
+                                  color="#2E4737"
                                   name={showTimeZoneOptions ? 'expand-less' : 'expand-more'}
                                   size={20}
                                 />
@@ -824,7 +1335,14 @@ export default function DallasAppBuddiesScreen() {
                               {savingSettings ? 'Saving...' : 'Save buddy settings'}
                             </Text>
                           </Pressable>
-                        </View>
+                          <Pressable
+                            disabled={savingSettings || deletingBuddy}
+                            style={[styles.dangerButton, (savingSettings || deletingBuddy) && styles.disabledButton]}
+                            onPress={() => setShowDeleteDialog(true)}
+                          >
+                            <Text style={styles.dangerButtonText}>Delete buddy</Text>
+                          </Pressable>
+                        </View> : null}
                       </View>
                     ) : null}
                   </View>
@@ -847,12 +1365,14 @@ export default function DallasAppBuddiesScreen() {
 }
 
 function Field({
+  inputMode,
   label,
   multiline,
   onChangeText,
   placeholder,
   value,
 }: {
+  inputMode?: 'text' | 'tel';
   label: string;
   multiline?: boolean;
   onChangeText: (value: string) => void;
@@ -863,10 +1383,11 @@ function Field({
     <View style={styles.fieldGroup}>
       <Text style={styles.inputLabel}>{label}</Text>
       <TextInput
+        inputMode={inputMode}
         multiline={multiline}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#8A948F"
+        placeholderTextColor="#768277"
         style={[styles.input, multiline && styles.multilineInput]}
         textAlignVertical={multiline ? 'top' : 'center'}
         value={value}
@@ -929,6 +1450,31 @@ function formatDateTime(value: string | null) {
     month: 'short',
     year: 'numeric',
   }).format(new Date(value));
+}
+
+function formatRelativeTime(value: string | null) {
+  if (!value) {
+    return 'No recent activity';
+  }
+
+  const diffMinutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60000));
+
+  if (diffMinutes < 1) {
+    return 'just now';
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  return `${diffDays}d ago`;
 }
 
 function formatTimeForInput(value: Date) {
@@ -1007,13 +1553,15 @@ function parseCheckInTime(value: string) {
 }
 
 function settingsLabel(buddy: BuddyPartner) {
-  return buddy.location || buddy.relationship || 'Dallas app buddy';
+  return buddy.partner_kind === 'external'
+    ? 'External Contact'
+    : buddy.location || buddy.relationship || 'Dallas App Buddy';
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F7F5',
   },
   keyboardArea: {
     flex: 1,
@@ -1022,6 +1570,7 @@ const styles = StyleSheet.create({
     gap: 18,
     minHeight: '100%',
     padding: 24,
+    paddingBottom: 136,
     paddingTop: 36,
   },
   centerPanel: {
@@ -1033,30 +1582,124 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'DM Mono',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#17211F',
-    fontSize: 34,
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 30,
     fontWeight: '900',
-    lineHeight: 39,
+    letterSpacing: -1.2,
+    lineHeight: 34,
   },
   copy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
-    borderRadius: 8,
+    borderColor: '#E7E6E2',
+    borderRadius: 10,
     borderWidth: 1,
     gap: 14,
     padding: 16,
+  },
+  latestMessageCard: {
+    backgroundColor: '#EEF1EC',
+    borderColor: '#D5DED9',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 14,
+    padding: 14,
+  },
+  latestMessageHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  latestMessageAvatar: {
+    alignItems: 'center',
+    backgroundColor: '#E7E6E2',
+    borderRadius: 24,
+    height: 48,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 48,
+  },
+  latestMessageAvatarImage: {
+    height: 48,
+    width: 48,
+  },
+  latestMessageAvatarInitial: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  latestMessageCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  latestMessageEyebrow: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  latestMessageBody: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  latestMessageTime: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+  },
+  latestMessageButton: {
+    alignItems: 'center',
+    backgroundColor: '#2E4737',
+    borderRadius: 9,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  latestMessageButtonText: {
+    color: '#FFFFFF',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  errorPanel: {
+    backgroundColor: '#FFF8F7',
+    borderColor: '#D9A6A1',
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14,
+  },
+  errorTitle: {
+    color: '#A33D32',
+    fontFamily: 'Manrope',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  errorText: {
+    color: '#A33D32',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    lineHeight: 20,
   },
   connectHeader: {
     alignItems: 'center',
@@ -1069,19 +1712,26 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   connectSummary: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
   },
   connectBody: {
-    borderTopColor: '#ECE5D8',
+    borderTopColor: '#E7E6E2',
     borderTopWidth: 1,
     gap: 12,
     paddingTop: 12,
   },
+  addBuddyDivider: {
+    borderTopColor: '#E7E6E2',
+    borderTopWidth: 1,
+    marginTop: 4,
+    paddingTop: 14,
+  },
   codePanel: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     padding: 12,
@@ -1097,7 +1747,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   codeText: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: 0,
@@ -1115,7 +1766,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   copyButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1124,13 +1776,13 @@ const styles = StyleSheet.create({
   },
   buddyItem: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'hidden',
   },
   activeBuddyItem: {
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
   },
   buddyHeader: {
     alignItems: 'center',
@@ -1141,7 +1793,7 @@ const styles = StyleSheet.create({
   },
   smallAvatar: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 22,
     height: 44,
     justifyContent: 'center',
@@ -1153,7 +1805,8 @@ const styles = StyleSheet.create({
     width: 44,
   },
   smallAvatarInitial: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 17,
     fontWeight: '900',
   },
@@ -1162,31 +1815,99 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   buddyName: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 17,
     fontWeight: '900',
   },
   buddyMeta: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
+  buddyPreview: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  unreadBadge: {
+    alignItems: 'center',
+    backgroundColor: '#A33D32',
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 24,
+    minWidth: 24,
+    paddingHorizontal: 6,
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '900',
+  },
   buddyBody: {
-    borderTopColor: '#ECE5D8',
+    borderTopColor: '#E7E6E2',
     borderTopWidth: 1,
     gap: 16,
     padding: 12,
   },
+  buddyTabs: {
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    padding: 3,
+  },
+  buddyTab: {
+    alignItems: 'center',
+    borderRadius: 6,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 6,
+  },
+  activeBuddyTab: {
+    backgroundColor: '#FFFFFF',
+  },
+  buddyTabText: {
+    color: '#768277',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  activeBuddyTabText: {
+    color: '#2E4737',
+  },
   plannedSection: {
     gap: 10,
   },
+  nextCheckInBanner: {
+    alignItems: 'center',
+    backgroundColor: '#EEF1EC',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 7,
+    minHeight: 38,
+    paddingHorizontal: 10,
+  },
+  nextCheckInText: {
+    color: '#829480',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '900',
+  },
   sectionTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 15,
     fontWeight: '900',
   },
   mutedText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
@@ -1194,26 +1915,47 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   plannedItem: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
     padding: 10,
   },
   plannedTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
   },
   plannedNote: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 12,
     lineHeight: 17,
   },
+  plannedActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  miniSecondaryButton: {
+    alignItems: 'center',
+    borderColor: '#2E4737',
+    borderRadius: 7,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  miniSecondaryButtonText: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   pickerPanel: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
@@ -1230,20 +1972,22 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   pickerValueLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
   pickerValueText: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 17,
     fontWeight: '900',
     textAlign: 'center',
   },
   stepperButton: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     height: 44,
     justifyContent: 'center',
@@ -1251,6 +1995,7 @@ const styles = StyleSheet.create({
   },
   stepperButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 22,
     fontWeight: '900',
   },
@@ -1260,7 +2005,7 @@ const styles = StyleSheet.create({
   },
   quickDateButton: {
     alignItems: 'center',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flex: 1,
@@ -1269,11 +2014,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   activeQuickDateButton: {
-    backgroundColor: '#075A43',
-    borderColor: '#075A43',
+    backgroundColor: '#2E4737',
+    borderColor: '#2E4737',
   },
   quickDateButtonText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
     textAlign: 'center',
@@ -1283,14 +2029,57 @@ const styles = StyleSheet.create({
   },
   messagePanel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 12,
     padding: 12,
   },
+  chatEmptyState: {
+    backgroundColor: '#F7F7F5',
+    borderRadius: 8,
+    gap: 3,
+    padding: 12,
+  },
+  chatEmptyTitle: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  quickMessageRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  quickMessageButton: {
+    backgroundColor: '#EEF1EC',
+    borderRadius: 16,
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+  },
+  quickMessageText: {
+    color: '#829480',
+    fontFamily: 'Manrope',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  expandComposerButton: {
+    alignSelf: 'flex-end',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  expandComposerText: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   messageList: {
     gap: 8,
+  },
+  messageHistory: {
+    maxHeight: 320,
   },
   messageBubble: {
     borderRadius: 8,
@@ -1300,16 +2089,17 @@ const styles = StyleSheet.create({
   },
   myMessageBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
   },
   theirMessageBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderWidth: 1,
   },
   messageBody: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
@@ -1317,7 +2107,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   messageTime: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 11,
     fontWeight: '800',
   },
@@ -1325,7 +2116,7 @@ const styles = StyleSheet.create({
     color: '#D9E8E3',
   },
   settingsPanel: {
-    borderTopColor: '#ECE5D8',
+    borderTopColor: '#E7E6E2',
     borderTopWidth: 1,
     gap: 12,
     paddingTop: 12,
@@ -1334,16 +2125,18 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inputLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
   },
   input: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12,
@@ -1363,14 +2156,15 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   timeZoneSummary: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 15,
     fontWeight: '800',
   },
   timeZoneToggle: {
     alignItems: 'center',
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1379,7 +2173,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   timeZoneToggleText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1389,19 +2184,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   timeZoneOption: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 9,
   },
   activeTimeZoneOption: {
-    backgroundColor: '#075A43',
-    borderColor: '#075A43',
+    backgroundColor: '#2E4737',
+    borderColor: '#2E4737',
   },
   timeZoneOptionText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -1410,7 +2206,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -1418,12 +2214,13 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 15,
     fontWeight: '900',
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1431,20 +2228,72 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   secondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '900',
+  },
+  dangerButton: {
+    alignItems: 'center',
+    backgroundColor: '#A33D32',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 14,
+  },
+  dangerButtonText: {
+    color: '#FFFFFF',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  deleteOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(23, 23, 23, 0.42)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  deleteDialog: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E7E6E2',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    maxWidth: 420,
+    padding: 20,
+    width: '100%',
+  },
+  deleteTitle: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  deleteCopy: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  deleteActions: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'flex-end',
+    paddingTop: 4,
   },
   disabledButton: {
     opacity: 0.64,
   },
   loadingText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
   },
   statusMessage: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,

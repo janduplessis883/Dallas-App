@@ -164,6 +164,12 @@ export default function SettingsScreen() {
     setMessage('Test notification scheduled. Background the app and wait 5 seconds.');
   }
 
+  async function handleClearScheduledNotifications() {
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    await refreshNotificationStatus();
+    setMessage('All scheduled notifications were cleared from this device.');
+  }
+
   async function handleResetLegalInfo() {
     await deviceStorage.removeItem(importantInfoStorageKey);
     setMessage('Legal and safety acknowledgement reset. You will see it again before entering the app.');
@@ -184,7 +190,7 @@ export default function SettingsScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.centerPanel}>
-          <ActivityIndicator color="#075A43" />
+          <ActivityIndicator color="#2E4737" />
           <Text style={styles.loadingText}>Loading settings...</Text>
         </View>
       </SafeAreaView>
@@ -212,7 +218,7 @@ export default function SettingsScreen() {
               autoCorrect={false}
               onChangeText={setOpenAiApiKey}
               placeholder="sk-..."
-              placeholderTextColor="#8A948F"
+              placeholderTextColor="#768277"
               secureTextEntry
               style={styles.input}
               value={openAiApiKey}
@@ -255,6 +261,9 @@ export default function SettingsScreen() {
               icon="notifications-active"
               text={testingNotifications ? 'Scheduling...' : 'Send test notification'}
             />
+          </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={handleClearScheduledNotifications}>
+            <SecondaryButtonLabel icon="delete-sweep" text="Clear scheduled notifications" />
           </Pressable>
         </View>
 
@@ -339,7 +348,7 @@ function IconTitle({ icon, title }: { icon: keyof typeof MaterialIcons.glyphMap;
   return (
     <View style={styles.panelTitleRow}>
       <View style={styles.panelTitleIcon}>
-        <MaterialIcons color="#075A43" name={icon} size={20} />
+        <MaterialIcons color="#2E4737" name={icon} size={20} />
       </View>
       <Text style={styles.panelTitle}>{title}</Text>
     </View>
@@ -349,7 +358,7 @@ function IconTitle({ icon, title }: { icon: keyof typeof MaterialIcons.glyphMap;
 function SecondaryButtonLabel({ icon, text }: { icon: keyof typeof MaterialIcons.glyphMap; text: string }) {
   return (
     <View style={styles.buttonLabelRow}>
-      <MaterialIcons color="#075A43" name={icon} size={20} />
+      <MaterialIcons color="#2E4737" name={icon} size={20} />
       <Text style={styles.secondaryButtonText}>{text}</Text>
     </View>
   );
@@ -383,12 +392,13 @@ function LegalSafetyInfo() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F7F5',
   },
   container: {
     gap: 18,
     minHeight: '100%',
     padding: 24,
+    paddingBottom: 136,
     paddingTop: 36,
   },
   centerPanel: {
@@ -400,33 +410,37 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   eyebrow: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '700',
     letterSpacing: 0,
     textTransform: 'uppercase',
   },
   title: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 34,
     fontWeight: '800',
     lineHeight: 40,
   },
   copy: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 16,
     lineHeight: 24,
   },
   panel: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#E3E1DB',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 14,
     padding: 16,
   },
   panelTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -437,30 +451,33 @@ const styles = StyleSheet.create({
   },
   panelTitleIcon: {
     alignItems: 'center',
-    backgroundColor: '#ECE5D8',
+    backgroundColor: '#E7E6E2',
     borderRadius: 8,
     height: 34,
     justifyContent: 'center',
     width: 34,
   },
   mutedText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
   infoRow: {
-    borderBottomColor: '#ECE5D8',
+    borderBottomColor: '#E7E6E2',
     borderBottomWidth: 1,
     gap: 4,
     paddingBottom: 12,
   },
   infoLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   infoValue: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -468,23 +485,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inputLabel: {
-    color: '#697570',
+    color: '#768277',
+    fontFamily: 'Manrope',
     fontSize: 13,
     fontWeight: '700',
   },
   input: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12,
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#075A43',
+    backgroundColor: '#2E4737',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -492,6 +511,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -503,7 +523,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    borderColor: '#075A43',
+    borderColor: '#2E4737',
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
@@ -511,13 +531,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
   secondaryButtonText: {
-    color: '#075A43',
+    color: '#2E4737',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
   dangerButton: {
     alignItems: 'center',
-    backgroundColor: '#B40B35',
+    backgroundColor: '#A33D32',
     borderRadius: 8,
     justifyContent: 'center',
     minHeight: 50,
@@ -525,6 +546,7 @@ const styles = StyleSheet.create({
   },
   dangerButtonText: {
     color: '#FFFFFF',
+    fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -532,30 +554,34 @@ const styles = StyleSheet.create({
     opacity: 0.64,
   },
   legalPanel: {
-    backgroundColor: '#F9F7F0',
-    borderColor: '#E3E1DB',
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
     borderRadius: 8,
     borderWidth: 1,
     gap: 8,
     padding: 14,
   },
   legalTitle: {
-    color: '#17211F',
+    color: '#171717',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '800',
   },
   legalText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     lineHeight: 20,
   },
   loadingText: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
   },
   message: {
-    color: '#4F5D58',
+    color: '#777777',
+    fontFamily: 'Manrope',
     fontSize: 14,
     fontWeight: '600',
     lineHeight: 20,
