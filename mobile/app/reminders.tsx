@@ -126,6 +126,7 @@ export default function RemindersScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewReminder, setPreviewReminder] = useState<Reminder | null>(null);
   const [quietHours, setQuietHours] = useState<QuietHours>({ enabled: false, end: '07:00', start: '22:00' });
+  const [savingQuietHours, setSavingQuietHours] = useState(false);
 
   useEffect(() => {
     refreshNotificationStatus();
@@ -223,8 +224,17 @@ export default function RemindersScreen() {
   }
 
   async function handleSaveQuietHours() {
-    await deviceStorage.setItem(quietHoursStorageKey, JSON.stringify(quietHours));
-    setMessage(quietHours.enabled ? `Quiet hours saved: ${quietHours.start}–${quietHours.end}.` : 'Quiet hours turned off.');
+    setSavingQuietHours(true);
+    setMessage('');
+
+    try {
+      await deviceStorage.setItem(quietHoursStorageKey, JSON.stringify(quietHours));
+      setMessage(quietHours.enabled ? `Quiet hours saved: ${quietHours.start}–${quietHours.end}.` : 'Quiet hours turned off.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save quiet hours.');
+    } finally {
+      setSavingQuietHours(false);
+    }
   }
 
   async function scheduleReminder(reminder: Reminder) {
@@ -495,7 +505,13 @@ export default function RemindersScreen() {
             <TextInput accessibilityLabel="Quiet hours start" placeholder="22:00" placeholderTextColor="#768277" style={[styles.input, styles.halfInput]} value={quietHours.start} onChangeText={(start) => setQuietHours((current) => ({ ...current, start }))} />
             <TextInput accessibilityLabel="Quiet hours end" placeholder="07:00" placeholderTextColor="#768277" style={[styles.input, styles.halfInput]} value={quietHours.end} onChangeText={(end) => setQuietHours((current) => ({ ...current, end }))} />
           </View>
-          <Pressable style={styles.secondaryButton} onPress={handleSaveQuietHours}><Text style={styles.secondaryButtonText}>Save quiet hours</Text></Pressable>
+          <Pressable
+            disabled={savingQuietHours}
+            style={[styles.secondaryButton, savingQuietHours && styles.disabledButton]}
+            onPress={handleSaveQuietHours}
+          >
+            <Text style={styles.secondaryButtonText}>{savingQuietHours ? 'Updating...' : 'Save quiet hours'}</Text>
+          </Pressable>
         </SectionCard>
 
         <SectionCard title={editingId ? 'Edit reminder' : 'Add a reminder'}>

@@ -67,6 +67,8 @@ create table if not exists public.accountability_planned_check_ins (
   scheduled_at timestamptz not null,
   notification_id text,
   note text,
+  status text not null default 'planned' check (status in ('planned', 'missed')),
+  outcome_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -275,7 +277,10 @@ alter table public.accountability_partners
   on delete set null;
 
 alter table public.accountability_planned_check_ins
-  add column if not exists notification_id text;
+  add column if not exists notification_id text,
+  add column if not exists status text not null default 'planned'
+    check (status in ('planned', 'missed')),
+  add column if not exists outcome_at timestamptz;
 
 alter table public.prophetic_visions
   add column if not exists short_version text not null default '',
@@ -365,6 +370,9 @@ create index if not exists accountability_planned_check_ins_user_id_scheduled_at
 
 create index if not exists accountability_planned_check_ins_partner_id_scheduled_at_idx
   on public.accountability_planned_check_ins (partner_id, scheduled_at asc);
+
+create index if not exists accountability_planned_check_ins_user_partner_status_scheduled_at_idx
+  on public.accountability_planned_check_ins (user_id, partner_id, status, scheduled_at);
 
 create index if not exists accountability_check_in_threads_user_id_updated_at_idx
   on public.accountability_check_in_threads (user_id, updated_at desc);

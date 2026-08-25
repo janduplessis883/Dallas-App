@@ -13,6 +13,8 @@
 - **Reconnection**: a new invitation following a disconnect. It always requires recipient acceptance again.
 - **Invitation indicator**: the red marker on the bottom-navigation Check-in link that signals one or more pending incoming invitations.
 - **Invitation notification**: a push notification sent to the recipient when a new buddy invitation is created, in addition to the in-app invitation indicator.
+- **Missed planned check-in**: a planned check-in that reaches ten minutes after its scheduled time without a recorded final outcome. It is distinct from a deliberately skipped check-in.
+- **Past check-in**: a completed or missed check-in displayed after active planned check-ins for a buddy.
 
 ## Lifecycle rules
 
@@ -21,3 +23,7 @@
 - A new invitation for the same recipient may not be created until seven days after the previous invitation was declined.
 - Either participant in an active buddy connection may block the other participant.
 - During the post-decline cooldown, the sender sees the date on which they may invite again rather than a decline notification.
+- A planned check-in is automatically marked missed ten minutes after its scheduled time if no final outcome has been recorded.
+- When a buddy's Check-in submenu loads, overdue planned check-ins are recorded as missed and appear in Past check-ins.
+- Past check-ins remain stored but are shown in the app only for the most recent fourteen days, with at most ten entries per buddy.
+- Planned check-ins do not support rescheduling or a declined outcome.

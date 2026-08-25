@@ -44,6 +44,7 @@ type AccountabilityPartner = {
   name: string;
   notes: string | null;
   partner_kind: 'external' | 'dallas_user';
+  profile_avatar_path?: string | null;
   relationship: string | null;
   time_zone: string | null;
 };
@@ -63,6 +64,14 @@ type AccountabilityPlannedCheckIn = {
   id: string;
   note: string | null;
   notification_id: string | null;
+  partner_id: string;
+  scheduled_at: string;
+};
+
+type AccountabilityMissedCheckIn = {
+  id: string;
+  note: string | null;
+  outcome_at: string | null;
   partner_id: string;
   scheduled_at: string;
 };
@@ -157,6 +166,7 @@ export default function AccountabilityScreen() {
   const [message, setMessage] = useState('');
   const [partnerMessages, setPartnerMessages] = useState<AccountabilityThreadMessage[]>([]);
   const [partners, setPartners] = useState<AccountabilityPartner[]>([]);
+  const [missedCheckIns, setMissedCheckIns] = useState<AccountabilityMissedCheckIn[]>([]);
   const [plannedCheckIns, setPlannedCheckIns] = useState<AccountabilityPlannedCheckIn[]>([]);
   const [saving, setSaving] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
@@ -174,12 +184,24 @@ export default function AccountabilityScreen() {
     () => partners.find((partner) => partner.id === selectedPartnerId) ?? null,
     [partners, selectedPartnerId],
   );
-  const selectedAvatarUrl = selectedPartner?.avatar_path
-    ? getPublicPartnerAvatarUrl(selectedPartner.avatar_path)
-    : '';
+  const selectedAvatarUrl = selectedPartner ? getPartnerAvatarUrl(selectedPartner) : '';
   const selectedLocalTime = getLocalTime(form.timeZone);
   const selectedTimeZoneLabel = getTimeZoneLabel(form.timeZone);
   const hasDallasBuddies = partners.some((partner) => partner.partner_kind === 'dallas_user');
+  const pastCheckIns = useMemo(() => [
+    ...checkIns.map((checkIn) => ({
+      id: checkIn.id,
+      note: checkIn.note,
+      occurredAt: checkIn.completed_at,
+      status: 'completed' as const,
+    })),
+    ...missedCheckIns.map((checkIn) => ({
+      id: checkIn.id,
+      note: checkIn.note,
+      occurredAt: checkIn.scheduled_at,
+      status: 'missed' as const,
+    })),
+  ].sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime()).slice(0, 10), [checkIns, missedCheckIns]);
 
   useEffect(() => {
     let mounted = true;
@@ -233,7 +255,36 @@ export default function AccountabilityScreen() {
       return;
     }
 
-    setPartners(data ?? []);
+    const nextPartners = data ?? [];
+    const connectedUserIds = nextPartners
+      .map((partner) => partner.connected_user_id)
+      .filter((userId): userId is string => Boolean(userId));
+
+    if (!connectedUserIds.length) {
+      setPartners(nextPartners);
+      return;
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('avatar_path, id')
+      .in('id', connectedUserIds);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (profilesError) {
+      setMessage(profilesError.message);
+      setPartners(nextPartners);
+      return;
+    }
+
+    const profileAvatarPaths = new Map((profiles ?? []).map((profile) => [profile.id, profile.avatar_path]));
+    setPartners(nextPartners.map((partner) => ({
+      ...partner,
+      profile_avatar_path: partner.connected_user_id ? profileAvatarPaths.get(partner.connected_user_id) ?? null : null,
+    })));
   }
 
   async function loadUserDisplayName(
@@ -266,13 +317,15 @@ export default function AccountabilityScreen() {
       return;
     }
 
+    const oldestVisibleCheckIn = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from('accountability_check_ins')
       .select('completed_at, id, note, partner_id')
       .eq('user_id', userId)
       .eq('partner_id', partnerId)
+      .gte('completed_at', oldestVisibleCheckIn)
       .order('completed_at', { ascending: false })
-      .limit(8);
+      .limit(10);
 
     if (!mounted) {
       return;
@@ -289,27 +342,58 @@ export default function AccountabilityScreen() {
   async function loadPlannedCheckIns(partnerId: string, mounted = true, userId = session?.user.id) {
     if (!userId || !partnerId) {
       setPlannedCheckIns([]);
+      setMissedCheckIns([]);
       return;
     }
 
-    const { data, error } = await supabase
+    const missedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const oldestVisibleCheckIn = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const { error: markMissedError } = await supabase
       .from('accountability_planned_check_ins')
-      .select('id, note, notification_id, partner_id, scheduled_at')
+      .update({ outcome_at: new Date().toISOString(), status: 'missed' })
       .eq('user_id', userId)
       .eq('partner_id', partnerId)
-      .order('scheduled_at', { ascending: true })
-      .limit(6);
+      .eq('status', 'planned')
+      .lte('scheduled_at', missedAt);
+
+    if (markMissedError) {
+      if (mounted) {
+        setMessage(markMissedError.message);
+      }
+      return;
+    }
+
+    const [{ data: plannedData, error: plannedError }, { data: missedData, error: missedError }] = await Promise.all([
+      supabase
+        .from('accountability_planned_check_ins')
+        .select('id, note, notification_id, partner_id, scheduled_at')
+        .eq('user_id', userId)
+        .eq('partner_id', partnerId)
+        .eq('status', 'planned')
+        .order('scheduled_at', { ascending: true })
+        .limit(6),
+      supabase
+        .from('accountability_planned_check_ins')
+        .select('id, note, outcome_at, partner_id, scheduled_at')
+        .eq('user_id', userId)
+        .eq('partner_id', partnerId)
+        .eq('status', 'missed')
+        .gte('scheduled_at', oldestVisibleCheckIn)
+        .order('scheduled_at', { ascending: false })
+        .limit(10),
+    ]);
 
     if (!mounted) {
       return;
     }
 
-    if (error) {
-      setMessage(error.message);
+    if (plannedError || missedError) {
+      setMessage(plannedError?.message ?? missedError?.message ?? 'Could not load check-ins.');
       return;
     }
 
-    setPlannedCheckIns(data ?? []);
+    setPlannedCheckIns(plannedData ?? []);
+    setMissedCheckIns(missedData ?? []);
   }
 
   async function loadPartnerMessages(partnerId: string, mounted = true, userId = session?.user.id) {
@@ -413,6 +497,7 @@ export default function AccountabilityScreen() {
     setForm(emptyPartnerForm);
     setSelectedPartnerId('');
     setCheckIns([]);
+    setMissedCheckIns([]);
     setPlannedCheckIns([]);
     setPartnerMessages([]);
     setAvatarFailed(false);
@@ -437,6 +522,7 @@ export default function AccountabilityScreen() {
       setQuickCheckInMessage(buildQuickCheckInMessage(partner.name, quickCheckInStatus, quickCheckInNote));
     }
     loadCheckIns(partner.id);
+    loadPlannedCheckIns(partner.id);
     loadPartnerMessages(partner.id);
   }
 
@@ -812,9 +898,9 @@ export default function AccountabilityScreen() {
                 onPress={() => handleSelectPartner(partner)}
               >
                 <View style={styles.quickContactAvatar}>
-                  {partner.avatar_path ? (
+                  {getPartnerAvatarUrl(partner) ? (
                     <Image
-                      source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }}
+                      source={{ uri: getPartnerAvatarUrl(partner) }}
                       style={styles.quickContactAvatarImage}
                     />
                   ) : (
@@ -1239,8 +1325,8 @@ export default function AccountabilityScreen() {
                     onPress={() => handleSelectPartner(partner)}
                   >
                     <View style={styles.quickContactAvatar}>
-                      {partner.avatar_path ? (
-                        <Image source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }} style={styles.quickContactAvatarImage} />
+                      {getPartnerAvatarUrl(partner) ? (
+                        <Image source={{ uri: getPartnerAvatarUrl(partner) }} style={styles.quickContactAvatarImage} />
                       ) : (
                         <Text style={styles.quickContactAvatarInitial}>{getInitial(partner.name)}</Text>
                       )}
@@ -1290,9 +1376,9 @@ export default function AccountabilityScreen() {
                     <View key={partner.id} style={[styles.partnerItem, selected && styles.activePartnerItem]}>
                       <Pressable style={styles.partnerCard} onPress={() => handleSelectPartner(partner)}>
                         <View style={styles.smallAvatar}>
-                          {partner.avatar_path ? (
+                          {getPartnerAvatarUrl(partner) ? (
                             <Image
-                              source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }}
+                              source={{ uri: getPartnerAvatarUrl(partner) }}
                               style={styles.smallAvatarImage}
                             />
                           ) : (
@@ -1351,6 +1437,30 @@ export default function AccountabilityScreen() {
                             ) : (
                               <Text style={styles.inlineStatusText}>No planned check-ins yet.</Text>
                             )}
+
+                            <View style={styles.pastCheckInsSection}>
+                              <Text style={styles.inlineSectionTitle}>Past check-ins</Text>
+                              {pastCheckIns.length ? (
+                                <View style={styles.plannedList}>
+                                  {pastCheckIns.map((checkIn) => (
+                                    <View key={`${checkIn.status}-${checkIn.id}`} style={styles.pastCheckInItem}>
+                                      <Text style={styles.plannedItemTitle}>{formatDateTime(checkIn.occurredAt)}</Text>
+                                      <Text
+                                        style={[
+                                          styles.pastCheckInStatus,
+                                          checkIn.status === 'missed' && styles.missedCheckInStatus,
+                                        ]}
+                                      >
+                                        {checkIn.status === 'missed' ? 'Check-in missed' : 'Check-in completed'}
+                                      </Text>
+                                      {checkIn.note ? <Text style={styles.plannedItemNote}>{checkIn.note}</Text> : null}
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : (
+                                <Text style={styles.inlineStatusText}>No past check-ins yet.</Text>
+                              )}
+                            </View>
 
                             <View style={styles.pickerPanel}>
                               <View style={styles.pickerHeaderRow}>
@@ -1697,10 +1807,12 @@ function HistoryPartnerAvatar({
   fallbackName: string;
   partner: AccountabilityPartner | null;
 }) {
-  if (partner?.avatar_path) {
+  const avatarUrl = partner ? getPartnerAvatarUrl(partner) : '';
+
+  if (avatarUrl) {
     return (
       <View style={styles.historyAvatar}>
-        <Image source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }} style={styles.historyAvatarImage} />
+        <Image source={{ uri: avatarUrl }} style={styles.historyAvatarImage} />
       </View>
     );
   }
@@ -1875,8 +1987,20 @@ function getPartnerName(partnerId: string, partners: AccountabilityPartner[], fa
   return partnerName || 'this partner';
 }
 
+function getPartnerAvatarUrl(partner: AccountabilityPartner) {
+  if (partner.profile_avatar_path) {
+    return getPublicProfileAvatarUrl(partner.profile_avatar_path);
+  }
+
+  return partner.avatar_path ? getPublicPartnerAvatarUrl(partner.avatar_path) : '';
+}
+
 function getPublicPartnerAvatarUrl(path: string) {
   return supabase.storage.from('accountability-avatars').getPublicUrl(path).data.publicUrl;
+}
+
+function getPublicProfileAvatarUrl(path: string) {
+  return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
 }
 
 function isInternationalPhoneNumber(value: string) {
@@ -2463,6 +2587,30 @@ const styles = StyleSheet.create({
   plannedItemActions: {
     flexDirection: 'row',
     gap: 8,
+  },
+  pastCheckInsSection: {
+    borderTopColor: '#E7E6E2',
+    borderTopWidth: 1,
+    gap: 8,
+    paddingTop: 14,
+  },
+  pastCheckInItem: {
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 3,
+    padding: 10,
+  },
+  pastCheckInStatus: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  missedCheckInStatus: {
+    color: '#A33D32',
   },
   miniPrimaryButton: {
     alignItems: 'center',
