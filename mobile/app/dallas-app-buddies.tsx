@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as Notifications from 'expo-notifications';
 import { Link, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
@@ -51,6 +52,18 @@ type BuddyMessage = {
   sender_user_id: string;
 };
 
+type ExternalReply = {
+  body: string;
+  created_at: string;
+  id: string;
+};
+
+type CompletedCheckIn = {
+  completed_at: string;
+  id: string;
+  note: string | null;
+};
+
 type PlannedCheckIn = {
   id: string;
   note: string | null;
@@ -68,12 +81,25 @@ type BuddySettings = {
 };
 
 type BuddySection = 'chat' | 'check-ins' | 'details';
+type BuddyInvitation = { id: string; requester_user_id: string; requester_name: string; created_at: string };
 
 type BuddySummary = {
   lastMessage: string | null;
   lastMessageAt: string | null;
   nextCheckIn: string | null;
   unreadCount: number;
+};
+
+type BuddySummaryRow = {
+  connection_id: string | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  latest_received_at: string | null;
+  latest_received_message: string | null;
+  latest_received_sender_user_id: string | null;
+  next_check_in: string | null;
+  partner_id: string;
+  unread_count: number;
 };
 
 type LatestBuddyMessage = {
@@ -142,10 +168,13 @@ export default function DallasAppBuddiesScreen() {
   const [loadError, setLoadError] = useState('');
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<BuddyMessage[]>([]);
+  const [externalReplies, setExternalReplies] = useState<ExternalReply[]>([]);
+  const [completedCheckIns, setCompletedCheckIns] = useState<CompletedCheckIn[]>([]);
   const [messageText, setMessageText] = useState('');
   const [latestMessage, setLatestMessage] = useState<LatestBuddyMessage | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [plannedCheckIns, setPlannedCheckIns] = useState<PlannedCheckIn[]>([]);
+  const [completingPlannedCheckInId, setCompletingPlannedCheckInId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [deletingBuddy, setDeletingBuddy] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -155,6 +184,7 @@ export default function DallasAppBuddiesScreen() {
   const [showConnectSection, setShowConnectSection] = useState(false);
   const [showTimeZoneOptions, setShowTimeZoneOptions] = useState(false);
   const [activeBuddySection, setActiveBuddySection] = useState<BuddySection>('chat');
+  const [incomingInvitations, setIncomingInvitations] = useState<BuddyInvitation[]>([]);
   const [editingPlannedCheckInId, setEditingPlannedCheckInId] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const messageScrollViewRef = useRef<ScrollView | null>(null);
@@ -189,6 +219,8 @@ export default function DallasAppBuddiesScreen() {
           loadDallasCode(),
           loadBuddies(nextSession.user.id, mounted),
           markBuddyMessagesRead(nextSession.user.id),
+          markExternalRepliesRead(nextSession.user.id),
+          loadIncomingInvitations(nextSession.user.id),
           syncGrantedPushTokenAsync(nextSession.user.id).catch(() => null),
         ]);
       } catch (error) {
@@ -218,7 +250,11 @@ export default function DallasAppBuddiesScreen() {
       await loadBuddies(userId, mounted);
 
       if (mounted && expandedBuddy) {
-        await loadMessages(expandedBuddy.app_connection_id, mounted);
+        if (expandedBuddy.partner_kind === 'external') {
+          await loadExternalReplies(expandedBuddy.id, mounted);
+        } else {
+          await loadMessages(expandedBuddy.app_connection_id, mounted);
+        }
       }
     }
 
@@ -230,7 +266,9 @@ export default function DallasAppBuddiesScreen() {
   }, [expandedBuddyId, session]));
 
   useEffect(() => {
-    if (!jumpToChatBottomRef.current || activeBuddySection !== 'chat' || !messages.length) {
+    const hasChatMessages = messages.length > 0 || externalReplies.length > 0;
+
+    if (!jumpToChatBottomRef.current || activeBuddySection !== 'chat' || !hasChatMessages) {
       return;
     }
 
@@ -240,7 +278,13 @@ export default function DallasAppBuddiesScreen() {
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [activeBuddySection, messages.length, messages[messages.length - 1]?.id]);
+  }, [
+    activeBuddySection,
+    externalReplies.length,
+    externalReplies[externalReplies.length - 1]?.id,
+    messages.length,
+    messages[messages.length - 1]?.id,
+  ]);
 
   async function retryLoad() {
     if (!session) {
@@ -300,74 +344,57 @@ export default function DallasAppBuddiesScreen() {
     }
   }
 
-  async function loadBuddySummaries(nextBuddies: BuddyPartner[], userId: string, mounted = true) {
-    const connectionIds = nextBuddies
-      .map((buddy) => buddy.app_connection_id)
-      .filter((connectionId): connectionId is string => Boolean(connectionId));
-    const partnerIds = nextBuddies.map((buddy) => buddy.id);
+  async function loadIncomingInvitations(userId: string) {
+    const { data } = await supabase.from('accountability_app_invitations').select('id, requester_user_id, created_at')
+      .eq('recipient_user_id', userId).eq('status', 'pending').order('created_at', { ascending: false });
+    const invitations = data ?? [];
+    const requesterIds = invitations.map((invitation) => invitation.requester_user_id);
+    const { data: profiles } = requesterIds.length ? await supabase.from('profiles').select('id, display_name').in('id', requesterIds) : { data: [] };
+    const names = new Map((profiles ?? []).map((profile) => [profile.id, profile.display_name || 'Dallas user']));
+    setIncomingInvitations(invitations.map((invitation) => ({ ...invitation, requester_name: names.get(invitation.requester_user_id) || 'Dallas user' })) as BuddyInvitation[]);
+  }
 
-    const [messageResults, receivedMessageResults, unreadResults, checkInResult] = await Promise.all([
-      Promise.all(connectionIds.map((connectionId) => supabase
-        .from('accountability_app_messages')
-        .select('body, created_at, sender_user_id')
-        .eq('connection_id', connectionId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-        .then((result) => ({ connectionId, message: result.data })))),
-      Promise.all(connectionIds.map((connectionId) => supabase
-        .from('accountability_app_messages')
-        .select('body, created_at, sender_user_id')
-        .eq('connection_id', connectionId)
-        .neq('sender_user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-        .then((result) => ({ connectionId, message: result.data })))),
-      Promise.all(connectionIds.map((connectionId) => supabase
-        .from('accountability_app_messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('connection_id', connectionId)
-        .neq('sender_user_id', userId)
-        .is('read_at', null)
-        .then((result) => ({ connectionId, count: result.count ?? 0 })))),
-      supabase
-        .from('accountability_planned_check_ins')
-        .select('partner_id, scheduled_at')
-        .eq('user_id', userId)
-        .in('partner_id', partnerIds)
-        .gte('scheduled_at', new Date().toISOString())
-        .order('scheduled_at', { ascending: true }),
-    ]);
+  async function handleInvitation(invitationId: string, action: 'accept_invitation' | 'decline_invitation' | 'block') {
+    const { error } = await supabase.functions.invoke('accountability-app', { body: { action, invitationId } });
+    if (error || !session) { setMessage(error ? await getFunctionErrorMessage(error) : 'Could not update invitation.'); return; }
+    await Promise.all([loadIncomingInvitations(session.user.id), loadBuddies(session.user.id)]);
+  }
+
+  async function loadBuddySummaries(nextBuddies: BuddyPartner[], _userId: string, mounted = true) {
+    const { data, error } = await supabase.rpc('get_buddy_summaries');
 
     if (!mounted) {
       return;
     }
 
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    const rows = (data ?? []) as BuddySummaryRow[];
+    const rowsByPartner = new Map(rows.map((row) => [row.partner_id, row]));
+
     const nextSummaries = nextBuddies.reduce<Record<string, BuddySummary>>((summaries, buddy) => {
-      const lastMessage = messageResults.find((result) => result.connectionId === buddy.app_connection_id)?.message;
-      const unreadCount = unreadResults.find((result) => result.connectionId === buddy.app_connection_id)?.count ?? 0;
-      const nextCheckIn = (checkInResult.data ?? []).find((checkIn) => checkIn.partner_id === buddy.id)?.scheduled_at ?? null;
+      const row = rowsByPartner.get(buddy.id);
 
       summaries[buddy.id] = {
-        lastMessage: lastMessage?.body ?? null,
-        lastMessageAt: lastMessage?.created_at ?? null,
-        nextCheckIn,
-        unreadCount,
+        lastMessage: row?.last_message ?? null,
+        lastMessageAt: row?.last_message_at ?? null,
+        nextCheckIn: row?.next_check_in ?? null,
+        unreadCount: Number(row?.unread_count ?? 0),
       };
       return summaries;
     }, {});
 
-    const newestMessage = receivedMessageResults
-      .map((result) => {
-        const buddy = nextBuddies.find((candidate) => candidate.app_connection_id === result.connectionId);
-
-        return buddy && result.message
+    const newestMessage = rows
+      .map((row) => {
+        return row.latest_received_message && row.latest_received_at && row.latest_received_sender_user_id
           ? {
-              body: result.message.body,
-              buddyId: buddy.id,
-              createdAt: result.message.created_at,
-              senderUserId: result.message.sender_user_id,
+              body: row.latest_received_message,
+              buddyId: row.partner_id,
+              createdAt: row.latest_received_at,
+              senderUserId: row.latest_received_sender_user_id,
             }
           : null;
       })
@@ -430,6 +457,52 @@ export default function DallasAppBuddiesScreen() {
     setMessages(data ?? []);
   }
 
+  async function loadExternalReplies(partnerId: string, mounted = true) {
+    const { data, error } = await supabase
+      .from('accountability_check_in_messages')
+      .select('body, created_at, id')
+      .eq('partner_id', partnerId)
+      .eq('sender_type', 'partner')
+      .order('created_at', { ascending: true })
+      .limit(80);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setExternalReplies(data ?? []);
+  }
+
+  async function loadCompletedCheckIns(partnerId: string, mounted = true, userId = session?.user.id) {
+    if (!userId) {
+      setCompletedCheckIns([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('accountability_check_ins')
+      .select('completed_at, id, note')
+      .eq('user_id', userId)
+      .eq('partner_id', partnerId)
+      .order('completed_at', { ascending: false });
+
+    if (!mounted) {
+      return;
+    }
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setCompletedCheckIns(data ?? []);
+  }
+
   async function loadPlannedCheckIns(partnerId: string, mounted = true, userId = session?.user.id) {
     if (!userId) {
       return;
@@ -440,8 +513,7 @@ export default function DallasAppBuddiesScreen() {
       .select('id, note, notification_id, partner_id, scheduled_at')
       .eq('user_id', userId)
       .eq('partner_id', partnerId)
-      .order('scheduled_at', { ascending: true })
-      .limit(8);
+      .order('scheduled_at', { ascending: true });
 
     if (!mounted) {
       return;
@@ -471,6 +543,15 @@ export default function DallasAppBuddiesScreen() {
       .update({ read_at: new Date().toISOString() })
       .in('connection_id', connectionIds)
       .neq('sender_user_id', userId)
+      .is('read_at', null);
+  }
+
+  async function markExternalRepliesRead(userId: string) {
+    await supabase
+      .from('accountability_check_in_messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('sender_type', 'partner')
       .is('read_at', null);
   }
 
@@ -506,7 +587,7 @@ export default function DallasAppBuddiesScreen() {
 
     setAppConnectLookup('');
     await loadBuddies(session.user.id);
-    setMessage('Dallas App Buddy connected.');
+    setMessage('Buddy invitation sent.');
   }
 
   async function handleAddExternalBuddy() {
@@ -613,12 +694,22 @@ export default function DallasAppBuddiesScreen() {
     setComposerExpanded(false);
     setShowTimeZoneOptions(false);
     setEditingPlannedCheckInId(null);
+    jumpToChatBottomRef.current = Boolean(nextExpandedId);
 
     if (!nextExpandedId) {
       setMessages([]);
+      setExternalReplies([]);
+      setCompletedCheckIns([]);
       setPlannedCheckIns([]);
       return;
     }
+
+    requestAnimationFrame(() => {
+      const offset = buddyOffsets.current[buddy.id];
+      if (typeof offset === 'number') {
+        scrollViewRef.current?.scrollTo({ animated: true, y: Math.max(0, offset - 18) });
+      }
+    });
 
     setSettings({
       checkInDate: formatDateInput(buddy.check_in_at),
@@ -627,8 +718,13 @@ export default function DallasAppBuddiesScreen() {
       notes: buddy.notes ?? '',
       timeZone: buddy.time_zone ?? 'Europe/London',
     });
-    loadMessages(buddy.app_connection_id);
+    if (buddy.partner_kind === 'external') {
+      loadExternalReplies(buddy.id);
+    } else {
+      loadMessages(buddy.app_connection_id);
+    }
     loadPlannedCheckIns(buddy.id);
+    loadCompletedCheckIns(buddy.id);
   }
 
   function handleJumpToLatestMessage() {
@@ -704,6 +800,28 @@ export default function DallasAppBuddiesScreen() {
     setDeletingBuddy(true);
     setMessage('');
 
+    if (expandedBuddy.partner_kind === 'dallas_user' && expandedBuddy.app_connection_id) {
+      const { error } = await supabase.functions.invoke('accountability-app', {
+        body: { action: 'disconnect', connectionId: expandedBuddy.app_connection_id },
+      });
+
+      setDeletingBuddy(false);
+
+      if (error) {
+        setMessage(await getFunctionErrorMessage(error));
+        return;
+      }
+
+      setShowDeleteDialog(false);
+      setExpandedBuddyId('');
+      setMessages([]);
+      setPlannedCheckIns([]);
+      setSettings(emptySettings);
+      await loadBuddies(session.user.id);
+      setMessage('Buddy disconnected.');
+      return;
+    }
+
     const { error } = await supabase
       .from('accountability_partners')
       .delete()
@@ -724,6 +842,31 @@ export default function DallasAppBuddiesScreen() {
     setSettings(emptySettings);
     await loadBuddies(session.user.id);
     setMessage('Buddy deleted.');
+  }
+
+  async function handleBlockBuddy() {
+    if (!session || !expandedBuddy?.app_connection_id) {
+      return;
+    }
+
+    setDeletingBuddy(true);
+    setMessage('');
+    const { error } = await supabase.functions.invoke('accountability-app', {
+      body: { action: 'block', connectionId: expandedBuddy.app_connection_id },
+    });
+    setDeletingBuddy(false);
+
+    if (error) {
+      setMessage(await getFunctionErrorMessage(error));
+      return;
+    }
+
+    setExpandedBuddyId('');
+    setMessages([]);
+    setPlannedCheckIns([]);
+    setSettings(emptySettings);
+    await loadBuddies(session.user.id);
+    setMessage('Buddy blocked. You can manage blocked buddies from your profile.');
   }
 
   async function handleAddPlannedCheckIn() {
@@ -790,6 +933,52 @@ export default function DallasAppBuddiesScreen() {
       setEditingPlannedCheckInId(null);
     }
     setMessage('Planned check-in removed.');
+  }
+
+  async function handleCompletePlannedCheckIn(plannedCheckIn: PlannedCheckIn) {
+    if (!session || completingPlannedCheckInId) {
+      return;
+    }
+
+    setCompletingPlannedCheckInId(plannedCheckIn.id);
+    setMessage('');
+
+    const { error: completionError } = await supabase.from('accountability_check_ins').insert({
+      note: plannedCheckIn.note,
+      partner_id: plannedCheckIn.partner_id,
+      user_id: session.user.id,
+    });
+
+    if (completionError) {
+      setCompletingPlannedCheckInId(null);
+      setMessage(completionError.message);
+      return;
+    }
+
+    const { error: removalError } = await supabase
+      .from('accountability_planned_check_ins')
+      .delete()
+      .eq('id', plannedCheckIn.id)
+      .eq('partner_id', plannedCheckIn.partner_id)
+      .eq('user_id', session.user.id);
+
+    if (removalError) {
+      setCompletingPlannedCheckInId(null);
+      setMessage('Check-in completed, but the planned check-in could not be removed.');
+      return;
+    }
+
+    if (plannedCheckIn.notification_id) {
+      await Notifications.cancelScheduledNotificationAsync(plannedCheckIn.notification_id).catch(() => null);
+    }
+
+    await Promise.all([
+      loadPlannedCheckIns(plannedCheckIn.partner_id),
+      loadCompletedCheckIns(plannedCheckIn.partner_id),
+      loadBuddySummaries(buddies, session.user.id),
+    ]);
+    setCompletingPlannedCheckInId(null);
+    setMessage('Check-in completed.');
   }
 
   async function handleSendMessage() {
@@ -864,7 +1053,7 @@ export default function DallasAppBuddiesScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.container}>
-          <Text style={styles.eyebrow}>Dallas App Buddies</Text>
+          <Text style={styles.eyebrow}>Check-in</Text>
           <Text style={styles.title}>Sign in required</Text>
           <Text style={styles.copy}>Your Dallas App Buddies are available after signing in.</Text>
           <Link href="/" asChild>
@@ -897,9 +1086,13 @@ export default function DallasAppBuddiesScreen() {
       >
         <View style={styles.deleteOverlay}>
           <View style={styles.deleteDialog}>
-            <Text style={styles.deleteTitle}>Delete {expandedBuddy?.name ?? 'this buddy'}?</Text>
+            <Text style={styles.deleteTitle}>
+              {expandedBuddy?.partner_kind === 'dallas_user' ? 'Disconnect' : 'Delete'} {expandedBuddy?.name ?? 'this buddy'}?
+            </Text>
             <Text style={styles.deleteCopy}>
-              This removes the buddy and their check-ins, planned check-ins, and web reply history from your account.
+              {expandedBuddy?.partner_kind === 'dallas_user'
+                ? 'This removes the buddy, messages, and check-ins for both of you. You can reconnect only through a new invitation.'
+                : 'This removes the buddy and their check-ins, planned check-ins, and web reply history from your account.'}
             </Text>
             <View style={styles.deleteActions}>
               <Pressable
@@ -914,7 +1107,9 @@ export default function DallasAppBuddiesScreen() {
                 style={[styles.dangerButton, deletingBuddy && styles.disabledButton]}
                 onPress={handleDeleteBuddy}
               >
-                <Text style={styles.dangerButtonText}>{deletingBuddy ? 'Deleting...' : 'Delete buddy'}</Text>
+                <Text style={styles.dangerButtonText}>
+                  {deletingBuddy ? 'Removing...' : expandedBuddy?.partner_kind === 'dallas_user' ? 'Disconnect buddy' : 'Delete buddy'}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -922,8 +1117,8 @@ export default function DallasAppBuddiesScreen() {
       </Modal>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardArea}>
         <ScrollView ref={scrollViewRef} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Text style={styles.eyebrow}>Dallas App Buddies</Text>
-          <Text style={styles.title}>Dallas App Buddies</Text>
+          <Text style={styles.eyebrow}>Check-in</Text>
+          <Text style={styles.title}>Check-in with your people</Text>
           <Text style={styles.copy}>
             Add every accountability buddy here. In-app buddies connect with a Dallas PIN; outside-app buddies receive
             a message with a secure web reply link.
@@ -1006,6 +1201,22 @@ export default function DallasAppBuddiesScreen() {
               </View>
             ) : null}
           </View>
+
+          {incomingInvitations.length ? (
+            <View style={styles.panel}>
+              <Text style={styles.sectionTitle}>Buddy requests</Text>
+              {incomingInvitations.map((invitation) => (
+                <View key={invitation.id} style={styles.plannedCheckInItem}>
+                  <Text style={styles.checkInHistoryDate}>{invitation.requester_name} wants to connect</Text>
+                  <View style={styles.plannedActions}>
+                    <Pressable style={styles.miniSecondaryButton} onPress={() => handleInvitation(invitation.id, 'accept_invitation')}><Text style={styles.miniSecondaryButtonText}>Accept</Text></Pressable>
+                    <Pressable style={styles.miniSecondaryButton} onPress={() => handleInvitation(invitation.id, 'decline_invitation')}><Text style={styles.miniSecondaryButtonText}>Decline</Text></Pressable>
+                    <Pressable style={styles.miniSecondaryButton} onPress={() => handleInvitation(invitation.id, 'block')}><Text style={styles.miniSecondaryButtonText}>Block</Text></Pressable>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           {latestMessage && latestBuddy ? (
             <View style={styles.latestMessageCard}>
@@ -1109,30 +1320,37 @@ export default function DallasAppBuddiesScreen() {
 
                         {activeBuddySection === 'check-ins' ? <View style={styles.plannedSection}>
                           <Text style={styles.sectionTitle}>Planned check-ins</Text>
-                          {summary?.nextCheckIn ? (
-                            <View style={styles.nextCheckInBanner}>
-                              <MaterialIcons color="#829480" name="schedule" size={18} />
-                              <Text style={styles.nextCheckInText}>Next: {formatRelativeTime(summary.nextCheckIn)}</Text>
-                            </View>
-                          ) : null}
                           {plannedCheckIns.length ? (
-                            <View style={styles.plannedList}>
+                            <View style={styles.checkInHistoryList}>
                               {plannedCheckIns.map((plannedCheckIn) => (
-                                <View key={plannedCheckIn.id} style={styles.plannedItem}>
-                                  <Text style={styles.plannedTitle}>{formatDateTime(plannedCheckIn.scheduled_at)}</Text>
-                                  {plannedCheckIn.note ? (
-                                    <Text style={styles.plannedNote}>{plannedCheckIn.note}</Text>
-                                  ) : null}
+                                <View key={plannedCheckIn.id} style={[styles.checkInHistoryItem, styles.plannedCheckInItem]}>
+                                  <Text style={styles.checkInHistoryDate}>{formatDateTime(plannedCheckIn.scheduled_at)}</Text>
+                                  <Text style={styles.plannedCheckInStatus}>Check-in planned</Text>
+                                  {plannedCheckIn.note ? <Text style={styles.checkInHistoryNote}>{plannedCheckIn.note}</Text> : null}
                                   <View style={styles.plannedActions}>
-                                    <Pressable style={styles.miniSecondaryButton} onPress={() => handleEditPlannedCheckIn(plannedCheckIn)}>
+                                    <Pressable
+                                      disabled={Boolean(completingPlannedCheckInId)}
+                                      style={[styles.miniSecondaryButton, completingPlannedCheckInId && styles.disabledButton]}
+                                      onPress={() => handleEditPlannedCheckIn(plannedCheckIn)}
+                                    >
                                       <Text style={styles.miniSecondaryButtonText}>Edit</Text>
                                     </Pressable>
-                                  <Pressable
-                                    style={styles.secondaryButton}
-                                    onPress={() => handleRemovePlannedCheckIn(plannedCheckIn)}
-                                  >
-                                    <Text style={styles.secondaryButtonText}>Remove</Text>
-                                  </Pressable>
+                                    <Pressable
+                                      disabled={Boolean(completingPlannedCheckInId)}
+                                      style={[styles.secondaryButton, completingPlannedCheckInId && styles.disabledButton]}
+                                      onPress={() => handleRemovePlannedCheckIn(plannedCheckIn)}
+                                    >
+                                      <Text style={styles.secondaryButtonText}>Remove</Text>
+                                    </Pressable>
+                                    <Pressable
+                                      disabled={Boolean(completingPlannedCheckInId)}
+                                      style={[styles.miniSecondaryButton, completingPlannedCheckInId && styles.disabledButton]}
+                                      onPress={() => handleCompletePlannedCheckIn(plannedCheckIn)}
+                                    >
+                                      <Text style={styles.miniSecondaryButtonText}>
+                                        {completingPlannedCheckInId === plannedCheckIn.id ? 'Completing...' : 'Complete'}
+                                      </Text>
+                                    </Pressable>
                                   </View>
                                 </View>
                               ))}
@@ -1141,7 +1359,22 @@ export default function DallasAppBuddiesScreen() {
                             <Text style={styles.mutedText}>No planned check-ins yet.</Text>
                           )}
 
-                          <View style={styles.pickerPanel}>
+                          <Text style={styles.historyGroupTitle}>Past check-ins</Text>
+                          {completedCheckIns.length ? (
+                            <View style={styles.checkInHistoryList}>
+                              {completedCheckIns.map((checkIn) => (
+                                <View key={checkIn.id} style={styles.checkInHistoryItem}>
+                                  <Text style={styles.checkInHistoryDate}>{formatDateTime(checkIn.completed_at)}</Text>
+                                  <Text style={styles.checkInHistoryStatus}>Check-in completed</Text>
+                                  {checkIn.note ? <Text style={styles.checkInHistoryNote}>{checkIn.note}</Text> : null}
+                                </View>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text style={styles.mutedText}>No completed check-ins yet.</Text>
+                          )}
+
+                          {false && <View style={styles.pickerPanel}>
                             <View style={styles.pickerHeaderRow}>
                               <Pressable style={styles.stepperButton} onPress={() => adjustCheckInDate(-1)}>
                                 <Text style={styles.stepperButtonText}>-</Text>
@@ -1198,7 +1431,7 @@ export default function DallasAppBuddiesScreen() {
                                 <Text style={styles.expandComposerText}>Cancel edit</Text>
                               </Pressable>
                             ) : null}
-                          </View>
+                          </View>}
                         </View> : null}
 
                         {activeBuddySection === 'chat' ? <View style={styles.messagePanel}>
@@ -1206,7 +1439,28 @@ export default function DallasAppBuddiesScreen() {
                           {buddy.partner_kind !== 'dallas_user' ? (
                             <Text style={styles.mutedText}>Your message includes a secure web link so they can reply without the app.</Text>
                           ) : null}
-                          {messages.length ? (
+                          {buddy.partner_kind === 'external' ? (
+                            externalReplies.length ? (
+                              <ScrollView
+                                ref={messageScrollViewRef}
+                                nestedScrollEnabled
+                                style={styles.messageHistory}
+                                contentContainerStyle={styles.messageList}
+                              >
+                                {externalReplies.map((reply) => (
+                                  <View key={reply.id} style={[styles.messageBubble, styles.theirMessageBubble]}>
+                                    <Text style={styles.messageBody}>{reply.body}</Text>
+                                    <Text style={styles.messageTime}>{formatDateTime(reply.created_at)}</Text>
+                                  </View>
+                                ))}
+                              </ScrollView>
+                            ) : (
+                              <View style={styles.chatEmptyState}>
+                                <Text style={styles.chatEmptyTitle}>No replies yet</Text>
+                                <Text style={styles.mutedText}>When your external contact replies, it will appear here.</Text>
+                              </View>
+                            )
+                          ) : messages.length ? (
                             <ScrollView
                               ref={messageScrollViewRef}
                               nestedScrollEnabled
@@ -1340,8 +1594,19 @@ export default function DallasAppBuddiesScreen() {
                             style={[styles.dangerButton, (savingSettings || deletingBuddy) && styles.disabledButton]}
                             onPress={() => setShowDeleteDialog(true)}
                           >
-                            <Text style={styles.dangerButtonText}>Delete buddy</Text>
+                            <Text style={styles.dangerButtonText}>
+                              {buddy.partner_kind === 'dallas_user' ? 'Disconnect buddy' : 'Delete buddy'}
+                            </Text>
                           </Pressable>
+                          {buddy.partner_kind === 'dallas_user' && buddy.app_connection_id ? (
+                            <Pressable
+                              disabled={savingSettings || deletingBuddy}
+                              style={[styles.dangerButton, (savingSettings || deletingBuddy) && styles.disabledButton]}
+                              onPress={handleBlockBuddy}
+                            >
+                              <Text style={styles.dangerButtonText}>{deletingBuddy ? 'Blocking...' : 'Block buddy'}</Text>
+                            </Pressable>
+                          ) : null}
                         </View> : null}
                       </View>
                     ) : null}
@@ -1883,6 +2148,57 @@ const styles = StyleSheet.create({
   },
   plannedSection: {
     gap: 10,
+  },
+  checkInHistoryList: {
+    gap: 8,
+  },
+  checkInHistoryItem: {
+    backgroundColor: '#F7F7F5',
+    borderColor: '#E7E6E2',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+    padding: 12,
+  },
+  plannedCheckInItem: {
+    backgroundColor: '#EEF1EC',
+    borderColor: '#B9CDC6',
+  },
+  checkInHistoryDate: {
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  checkInHistoryStatus: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  plannedCheckInStatus: {
+    color: '#768277',
+    fontFamily: 'DM Mono',
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  checkInHistoryNote: {
+    color: '#777777',
+    fontFamily: 'Manrope',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  historyGroupTitle: {
+    borderTopColor: '#E7E6E2',
+    borderTopWidth: 1,
+    color: '#171717',
+    fontFamily: 'Manrope',
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 8,
+    paddingTop: 14,
   },
   nextCheckInBanner: {
     alignItems: 'center',

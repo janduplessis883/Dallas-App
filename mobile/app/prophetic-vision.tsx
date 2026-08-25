@@ -207,25 +207,12 @@ export default function PropheticVisionScreen() {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const asset = await chooseCoverImage((nextMessage) => setMessage(nextMessage));
 
-    if (!permission.granted) {
-      setMessage('Photo library permission is needed to choose a cover image.');
+    if (!asset) {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [16, 9],
-      mediaTypes: ['images'],
-      quality: 0.85,
-    });
-
-    if (result.canceled) {
-      return;
-    }
-
-    const asset = result.assets[0];
     const contentType = asset.mimeType ?? 'image/jpeg';
     const extension = getImageExtension(contentType, asset.uri);
     const storagePath = `${session.user.id}/cover.${extension}`;
@@ -590,13 +577,11 @@ export default function PropheticVisionScreen() {
           </View>
 
           <Pressable
-            disabled={rewriting}
-            style={[styles.aiButton, rewriting && styles.disabledButton]}
-            onPress={handleRewriteWithAi}
+            accessibilityState={{ disabled: true }}
+            disabled
+            style={[styles.secondaryButton, styles.disabledButton]}
           >
-            <Text style={styles.aiButtonText}>
-              {rewriting ? 'Rewriting with AI...' : 'Rewrite using AI'}
-            </Text>
+            <Text style={styles.secondaryButtonText}>Rewrite using AI</Text>
           </Pressable>
 
           <Pressable
@@ -637,6 +622,29 @@ function getPublicCoverImageUrl(path: string, cacheKey?: number) {
   const publicUrl = supabase.storage.from('prophetic-vision-covers').getPublicUrl(path).data.publicUrl;
 
   return cacheKey ? `${publicUrl}?v=${cacheKey}` : publicUrl;
+}
+
+async function chooseCoverImage(onError: (message: string) => void) {
+  try {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      onError('Photo library permission is needed to choose a cover image. Enable Photos access for Dallas in Settings and try again.');
+      return null;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect: [16, 9],
+      mediaTypes: ['images'],
+      quality: 0.85,
+    });
+
+    return result.canceled ? null : result.assets[0] ?? null;
+  } catch (error) {
+    onError(error instanceof Error ? error.message : 'Could not open the photo library. Please try again.');
+    return null;
+  }
 }
 
 async function getSignedAudioUrl(path: string) {

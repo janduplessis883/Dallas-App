@@ -29,6 +29,12 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Dallas to choose profile and home cover images from your photo library."
+        }
+      ],
       "expo-secure-store",
       "expo-notifications"
     ],

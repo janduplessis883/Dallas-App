@@ -14,23 +14,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { deviceStorage } from '../src/lib/deviceStorage';
 import { ensureNotificationChannelAsync, notificationChannelId } from '../src/lib/notifications';
+import {
+  deleteRecoveryReminder,
+  disableRecoveryReminder,
+  getReminderUserId,
+  loadRecoveryReminders,
+  saveRecoveryReminder,
+  type StoredRecoveryReminder,
+} from '../src/lib/recoveryReminders';
 import { EmptyState } from '../src/components/EmptyState';
 import { PrimaryButton } from '../src/components/PrimaryButton';
 import { SectionCard } from '../src/components/SectionCard';
 
 const remindersStorageKey = 'dallas.reminders';
 const quietHoursStorageKey = 'dallas.reminder-quiet-hours';
+const reminderMigrationKeyPrefix = 'dallas.reminders.server-migrated.';
 
-type Reminder = {
-  date: string;
-  enabled: boolean;
-  id: string;
-  message: string;
-  notificationId: string | null;
-  time: string;
-  title: string;
-  snoozedUntil: string | null;
-};
+type Reminder = StoredRecoveryReminder;
 
 type QuietHours = {
   enabled: boolean;
@@ -140,11 +140,12 @@ export default function RemindersScreen() {
       setPermissionStatus(getPermissionStatusLabel(permissions));
       setScheduledCount(scheduledNotifications.length);
       const stored = await loadStoredReminders();
+      const durableReminders = await loadDurableReminders(stored);
       const storedQuietHours = await loadQuietHours();
-      setReminders(stored);
+      setReminders(durableReminders);
       setQuietHours(storedQuietHours);
       if (reminderId) {
-        const linkedReminder = stored.find((reminder) => reminder.id === reminderId);
+        const linkedReminder = durableReminders.find((reminder) => reminder.id === reminderId);
         if (linkedReminder) {
           startEditingReminder(linkedReminder);
         }
@@ -174,6 +175,39 @@ export default function RemindersScreen() {
   async function saveStoredReminders(nextReminders: Reminder[]) {
     await deviceStorage.setItem(remindersStorageKey, JSON.stringify(nextReminders));
     setReminders(nextReminders);
+  }
+
+  async function loadDurableReminders(localReminders: Reminder[]) {
+    const userId = await getReminderUserId();
+
+    if (!userId) {
+      return localReminders;
+    }
+
+    const migrationKey = `${reminderMigrationKeyPrefix}${userId}`;
+    const migrated = await deviceStorage.getItem(migrationKey);
+
+    if (!migrated) {
+      for (const reminder of localReminders) {
+        const scheduledAt = getReminderDate(reminder.date, reminder.time);
+        if (scheduledAt) {
+          await saveRecoveryReminder(userId, reminder, scheduledAt);
+        }
+      }
+      await deviceStorage.setItem(migrationKey, 'true');
+    }
+
+    const durableReminders = await loadRecoveryReminders(userId, localReminders);
+    await saveStoredReminders(durableReminders);
+    return durableReminders;
+  }
+
+  async function requireReminderUserId() {
+    const userId = await getReminderUserId();
+    if (!userId) {
+      throw new Error('Sign in before saving a reminder.');
+    }
+    return userId;
   }
 
   async function loadQuietHours(): Promise<QuietHours> {
@@ -242,6 +276,14 @@ export default function RemindersScreen() {
 
     try {
       const existing = reminders.find((reminder) => reminder.id === editingId);
+      const userId = await requireReminderUserId();
+      const parsedDate = getReminderDate(dateInput, timeInput);
+
+      if (!parsedDate || parsedDate.getTime() <= Date.now()) {
+        throw new Error('Choose a future date and time for this reminder.');
+      }
+
+      const scheduledAt = adjustForQuietHours(parsedDate, quietHours);
 
       if (existing?.notificationId) {
         await Notifications.cancelScheduledNotificationAsync(existing.notificationId).catch(() => null);
@@ -257,6 +299,7 @@ export default function RemindersScreen() {
         title: titleInput.trim(),
         snoozedUntil: null,
       };
+      await saveRecoveryReminder(userId, nextReminder, scheduledAt);
       nextReminder.notificationId = await scheduleReminder(nextReminder);
       const nextReminders = editingId
         ? reminders.map((reminder) => reminder.id === editingId ? nextReminder : reminder)
@@ -275,36 +318,61 @@ export default function RemindersScreen() {
 
   async function handleDeleteReminder(reminder: Reminder) {
     setWorking(true);
-    if (reminder.notificationId) {
-      await Notifications.cancelScheduledNotificationAsync(reminder.notificationId).catch(() => null);
+    try {
+      const userId = await requireReminderUserId();
+      await deleteRecoveryReminder(userId, reminder.id);
+      if (reminder.notificationId) {
+        await Notifications.cancelScheduledNotificationAsync(reminder.notificationId).catch(() => null);
+      }
+      await saveStoredReminders(reminders.filter((item) => item.id !== reminder.id));
+      setMessage('Reminder removed.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not remove this reminder.');
+    } finally {
+      setWorking(false);
+      await refreshNotificationStatus();
     }
-    await saveStoredReminders(reminders.filter((item) => item.id !== reminder.id));
-    setMessage('Reminder removed.');
-    setWorking(false);
-    await refreshNotificationStatus();
   }
 
   async function handleSnoozeReminder(reminder: Reminder) {
-    if (reminder.notificationId) {
-      await Notifications.cancelScheduledNotificationAsync(reminder.notificationId).catch(() => null);
+    setWorking(true);
+    try {
+      const userId = await requireReminderUserId();
+      const snoozedUntil = formatDate(new Date());
+      await disableRecoveryReminder(userId, reminder.id, snoozedUntil);
+      if (reminder.notificationId) {
+        await Notifications.cancelScheduledNotificationAsync(reminder.notificationId).catch(() => null);
+      }
+      const nextReminders = reminders.map((item) => item.id === reminder.id
+        ? { ...item, enabled: false, notificationId: null, snoozedUntil }
+        : item);
+      await saveStoredReminders(nextReminders);
+      setMessage(`${reminder.title} snoozed for today.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not snooze this reminder.');
+    } finally {
+      setWorking(false);
+      await refreshNotificationStatus();
     }
-    const nextReminders = reminders.map((item) => item.id === reminder.id
-      ? { ...item, enabled: false, notificationId: null, snoozedUntil: formatDate(new Date()) }
-      : item);
-    await saveStoredReminders(nextReminders);
-    setMessage(`${reminder.title} snoozed for today.`);
-    await refreshNotificationStatus();
   }
 
   async function handleToggleReminder(reminder: Reminder) {
     setWorking(true);
     try {
+      const userId = await requireReminderUserId();
       if (reminder.notificationId) {
         await Notifications.cancelScheduledNotificationAsync(reminder.notificationId).catch(() => null);
       }
       const nextReminder: Reminder = { ...reminder, enabled: !reminder.enabled, notificationId: null };
       if (nextReminder.enabled) {
+        const scheduledAt = getReminderDate(nextReminder.date, nextReminder.time);
+        if (!scheduledAt || scheduledAt.getTime() <= Date.now()) {
+          throw new Error('Choose a future date and time before turning this reminder back on.');
+        }
+        await saveRecoveryReminder(userId, nextReminder, scheduledAt);
         nextReminder.notificationId = await scheduleReminder(nextReminder);
+      } else {
+        await disableRecoveryReminder(userId, nextReminder.id);
       }
       await saveStoredReminders(reminders.map((item) => item.id === reminder.id ? nextReminder : item));
     } catch (error) {

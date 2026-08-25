@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
     <title>Dallas Check-in Reply</title>
     <script type="module" src="/src/main.js"></script>
   </head>
@@ -27,6 +28,11 @@
               required
               rows="6"
             ></textarea>
+          </label>
+
+          <label class="confirmation">
+            <input id="reply-confirmation" type="checkbox" required />
+            <span>I confirm that I want to send this reply.</span>
           </label>
 
           <button id="submit-button" type="submit">Send reply</button>

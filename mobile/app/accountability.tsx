@@ -90,8 +90,8 @@ type SectionKey = 'partners' | 'details' | 'replies' | 'history';
 type QuickCheckInStatus = 'okay' | 'support' | 'struggling';
 
 const emptyPartnerForm: PartnerForm = {
-  checkInDate: '',
-  checkInTime: '',
+  checkInDate: formatDateForInput(new Date()),
+  checkInTime: '18:00',
   location: '',
   mobileNumber: '',
   name: '',
@@ -424,8 +424,8 @@ export default function AccountabilityScreen() {
     setAvatarFailed(false);
     setMessage('');
     setForm({
-      checkInDate: formatDateInput(partner.check_in_at),
-      checkInTime: formatTimeInput(partner.check_in_at),
+      checkInDate: form.checkInDate || formatDateInput(partner.check_in_at),
+      checkInTime: form.checkInTime || formatTimeInput(partner.check_in_at),
       location: partner.location ?? '',
       mobileNumber: partner.mobile_number ?? '',
       name: partner.name,
@@ -437,7 +437,6 @@ export default function AccountabilityScreen() {
       setQuickCheckInMessage(buildQuickCheckInMessage(partner.name, quickCheckInStatus, quickCheckInNote));
     }
     loadCheckIns(partner.id);
-    loadPlannedCheckIns(partner.id);
     loadPartnerMessages(partner.id);
   }
 
@@ -591,7 +590,7 @@ export default function AccountabilityScreen() {
       .insert({
         partner_id: partnerId,
         planned_check_in_id: plannedCheckInId,
-        user_display_name: userDisplayName || session.user.email || 'Dallas user',
+        user_display_name: userDisplayName || 'Dallas user',
         user_id: session.user.id,
       })
       .select('id, partner_token')
@@ -1034,7 +1033,7 @@ export default function AccountabilityScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.container}>
-          <Text style={styles.eyebrow}>Accountability</Text>
+          <Text style={styles.eyebrow}>Reminders</Text>
           <Text style={styles.title}>Sign in required</Text>
           <Text style={styles.copy}>Your accountability partners are available after signing in.</Text>
           <Link href="/" asChild>
@@ -1083,13 +1082,13 @@ export default function AccountabilityScreen() {
       </Modal>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardArea}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Text style={styles.eyebrow}>Accountability</Text>
-          <Text style={styles.title}>Stay connected</Text>
+          <Text style={styles.eyebrow}>Reminders</Text>
+          <Text style={styles.title}>Plan your reminders</Text>
           <Text style={styles.copy}>
-            Choose a buddy, take the next action, and keep replies and completed check-ins together.
+            Set planned check-ins and reminders here. Open Check-in when you want to chat or check in with someone.
           </Text>
 
-          <SectionCard title="How are you doing right now?" description="Choose the closest fit. This is a check-in, not a judgment.">
+          {false && <SectionCard title="How are you doing right now?" description="Choose the closest fit. This is a check-in, not a judgment.">
             <View style={styles.quickCheckInGrid}>
               {([
                 ['okay', 'I’m okay', 'Keep my plan close'],
@@ -1150,7 +1149,7 @@ export default function AccountabilityScreen() {
                           onChangeText={setQuickCheckInMessage}
                         />
                         <Pressable disabled={completingCheckIn} style={[styles.button, completingCheckIn && styles.disabledButton]} onPress={handleSendQuickCheckIn}>
-                          <Text style={styles.buttonText}>{completingCheckIn ? 'Sending...' : `3. Send to ${selectedPartner.name}`}</Text>
+                          <Text style={styles.buttonText}>{completingCheckIn ? 'Sending...' : `3. Send to ${selectedPartner?.name ?? 'your buddy'}`}</Text>
                         </Pressable>
                       </>
                     ) : null}
@@ -1182,11 +1181,103 @@ export default function AccountabilityScreen() {
                 ) : null}
               </View>
             ) : null}
+          </SectionCard>}
+
+          <SectionCard title="Set a reminder" description="Choose when you want a notification, then choose who you want to check in with.">
+            <View style={styles.pickerPanel}>
+              <View style={styles.pickerHeaderRow}>
+                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInDate(-1)}>
+                  <Text style={styles.stepperButtonText}>-</Text>
+                </Pressable>
+                <View style={styles.pickerValue}>
+                  <Text style={styles.pickerValueLabel}>Date</Text>
+                  <Text style={styles.pickerValueText}>{formatHumanDate(form.checkInDate)}</Text>
+                </View>
+                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInDate(1)}>
+                  <Text style={styles.stepperButtonText}>+</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.quickDateRow}>
+                {getQuickDateOptions().map((option) => (
+                  <Pressable
+                    key={option.label}
+                    style={[styles.quickDateButton, form.checkInDate === option.value && styles.activeQuickDateButton]}
+                    onPress={() => updateCheckInDate(option.date)}
+                  >
+                    <Text style={[styles.quickDateButtonText, form.checkInDate === option.value && styles.activeQuickDateButtonText]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.pickerHeaderRow}>
+                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInTime(-15)}>
+                  <Text style={styles.stepperButtonText}>-</Text>
+                </Pressable>
+                <View style={styles.pickerValue}>
+                  <Text style={styles.pickerValueLabel}>Time</Text>
+                  <Text style={styles.pickerValueText}>{form.checkInTime || '18:00'}</Text>
+                </View>
+                <Pressable style={styles.stepperButton} onPress={() => adjustCheckInTime(15)}>
+                  <Text style={styles.stepperButtonText}>+</Text>
+                </Pressable>
+              </View>
+            </View>
           </SectionCard>
 
-          <CollapsibleSection
+          <SectionCard title="Choose a contact" description="Select the person you want to check in with at that time.">
+            {partners.length ? (
+              <View style={styles.quickContactList}>
+                {partners.map((partner) => (
+                  <Pressable
+                    key={partner.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selectedPartnerId === partner.id }}
+                    style={[styles.quickContactOption, selectedPartnerId === partner.id && styles.selectedQuickContactOption]}
+                    onPress={() => handleSelectPartner(partner)}
+                  >
+                    <View style={styles.quickContactAvatar}>
+                      {partner.avatar_path ? (
+                        <Image source={{ uri: getPublicPartnerAvatarUrl(partner.avatar_path) }} style={styles.quickContactAvatarImage} />
+                      ) : (
+                        <Text style={styles.quickContactAvatarInitial}>{getInitial(partner.name)}</Text>
+                      )}
+                    </View>
+                    <View style={styles.quickContactCopy}>
+                      <Text style={styles.quickContactName}>{partner.name}</Text>
+                      <Text style={styles.quickContactType}>{partner.partner_kind === 'dallas_user' ? 'Dallas App Buddy' : 'External Contact'}</Text>
+                    </View>
+                    <MaterialIcons color={selectedPartnerId === partner.id ? '#2E4737' : '#768277'} name={selectedPartnerId === partner.id ? 'check-circle' : 'chevron-right'} size={22} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.quickNoContactsPanel}>
+                <Text style={styles.quickNoContactsText}>You have no saved contacts yet.</Text>
+                <Link href="/dallas-app-buddies" asChild>
+                  <Pressable style={styles.secondaryButton}>
+                    <Text style={styles.secondaryButtonText}>Add a contact</Text>
+                  </Pressable>
+                </Link>
+              </View>
+            )}
+
+            <Pressable
+              disabled={addingPlannedCheckIn || !selectedPartnerId || !form.checkInDate}
+              style={[styles.button, (addingPlannedCheckIn || !selectedPartnerId || !form.checkInDate) && styles.disabledButton]}
+              onPress={handleAddPlannedCheckIn}
+            >
+              <Text style={styles.buttonText}>
+                {addingPlannedCheckIn ? 'Setting reminder...' : selectedPartner ? `Set reminder for ${selectedPartner?.name}` : 'Select a contact first'}
+              </Text>
+            </Pressable>
+          </SectionCard>
+
+          {false && <CollapsibleSection
             expanded={expandedSections.partners}
-            summary={selectedPartner ? `Selected: ${selectedPartner.name}` : `${partners.length} saved`}
+            summary={selectedPartner ? `Selected: ${selectedPartner?.name}` : `${partners.length} saved`}
             title="Buddies"
             onToggle={() => toggleSection('partners')}
           >
@@ -1219,32 +1310,6 @@ export default function AccountabilityScreen() {
                       </Pressable>
 
                       {selected ? (
-                        <View style={styles.inlineActions}>
-                          <View style={styles.inlineActionRow}>
-                            {partner.partner_kind === 'dallas_user' ? (
-                              <Link href={`/dallas-app-buddies?buddyId=${partner.id}`} asChild>
-                                <Pressable style={styles.inlinePrimaryButton}>
-                                  <Text style={styles.inlinePrimaryButtonText}>Open app chat</Text>
-                                </Pressable>
-                              </Link>
-                            ) : (
-                              <>
-                                <Pressable style={styles.inlinePrimaryButton} onPress={handleInvitePartner}>
-                                  <Text style={styles.inlinePrimaryButtonText}>SMS invite</Text>
-                                </Pressable>
-                                <Pressable style={styles.inlineSecondaryButton} onPress={handleSendCheckIn}>
-                                  <Text style={styles.inlineSecondaryButtonText}>Notify</Text>
-                                </Pressable>
-                              </>
-                            )}
-                          </View>
-                          <Text style={styles.inlineStatusText}>
-                            Invited: {formatDateTime(partner.invited_at)} · Last message: {formatDateTime(partner.last_notified_at)}
-                          </Text>
-                          <Text style={styles.inlineStatusText}>
-                            Last completed: {formatDateTime(checkIns[0]?.completed_at ?? null)}
-                          </Text>
-
                           <View style={styles.plannedSection}>
                             <Text style={styles.inlineSectionTitle}>Planned check-ins</Text>
                             {plannedCheckIns.length ? (
@@ -1348,41 +1413,6 @@ export default function AccountabilityScreen() {
                             </View>
                           </View>
 
-                          <View style={styles.inlineActivitySection}>
-                            <View style={styles.inlineActivityHeader}>
-                              <Text style={styles.inlineSectionTitle}>Replies</Text>
-                              <Text style={styles.inlineStatusText}>{partnerMessages.length} received</Text>
-                            </View>
-                            {partnerMessages.length ? partnerMessages.map((partnerMessage) => (
-                              <View key={partnerMessage.id} style={styles.inlineReplyItem}>
-                                <Text style={styles.inlineReplyTime}>{formatDateTime(partnerMessage.created_at)}</Text>
-                                <Text style={styles.inlineReplyBody}>{partnerMessage.body}</Text>
-                              </View>
-                            )) : <Text style={styles.inlineStatusText}>No replies yet.</Text>}
-                          </View>
-
-                          <View style={styles.inlineActivitySection}>
-                            <View style={styles.inlineActivityHeader}>
-                              <Text style={styles.inlineSectionTitle}>Completed check-ins</Text>
-                              <Text style={styles.inlineStatusText}>{checkIns.length} recent</Text>
-                            </View>
-                            <Pressable
-                              disabled={completingCheckIn}
-                              style={[styles.inlineSecondaryButton, completingCheckIn && styles.disabledButton]}
-                              onPress={handleMarkCheckInCompleted}
-                            >
-                              <Text style={styles.inlineSecondaryButtonText}>
-                                {completingCheckIn ? 'Saving...' : 'Mark completed'}
-                              </Text>
-                            </Pressable>
-                            {checkIns.length ? checkIns.map((checkIn) => (
-                              <View key={checkIn.id} style={styles.inlineReplyItem}>
-                                <Text style={styles.inlineReplyTime}>{formatDateTime(checkIn.completed_at)}</Text>
-                                {checkIn.note ? <Text style={styles.inlineReplyBody}>{checkIn.note}</Text> : null}
-                              </View>
-                            )) : <Text style={styles.inlineStatusText}>No completed check-ins yet.</Text>}
-                          </View>
-                        </View>
                       ) : null}
                     </View>
                   );
@@ -1390,15 +1420,15 @@ export default function AccountabilityScreen() {
               </View>
             ) : (
               <View style={styles.emptyStatePanel}>
-                <Text style={styles.mutedText}>No buddies yet. Add them from the Buddies area.</Text>
+                <Text style={styles.mutedText}>No buddies yet. Add them from the Check-in area.</Text>
                 <Link href="/dallas-app-buddies" asChild>
                   <Pressable style={styles.secondaryButton}>
-                    <Text style={styles.secondaryButtonText}>Go to Buddies</Text>
+                    <Text style={styles.secondaryButtonText}>Go to Check-in</Text>
                   </Pressable>
                 </Link>
               </View>
             )}
-          </CollapsibleSection>
+          </CollapsibleSection>}
 
           {false && <CollapsibleSection
             expanded={expandedSections.details}
@@ -1832,7 +1862,7 @@ function getTimeZoneLabel(value: string) {
 }
 
 function getFallbackUserDisplayName(metadata: Record<string, unknown>, email: string | undefined) {
-  return getMetadataValue(metadata.preferred_name) || email || 'Dallas user';
+  return getMetadataValue(metadata.preferred_name) || 'Dallas user';
 }
 
 function getMetadataValue(value: unknown) {

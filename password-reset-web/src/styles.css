@@ -66,6 +66,17 @@ h1 {
   gap: 16px;
 }
 
+.confirmation {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.confirmation input {
+  accent-color: #2e4737;
+  margin-top: 3px;
+}
+
 label {
   display: grid;
   gap: 7px;
@@ -86,6 +97,13 @@ input {
   min-height: 50px;
   outline: none;
   padding: 0 13px;
+}
+
+.confirmation input[type='checkbox'] {
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  width: 18px;
 }
 
 textarea {

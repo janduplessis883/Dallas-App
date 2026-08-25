@@ -46,8 +46,14 @@ Deno.serve(async (request) => {
       return getCode(adminClient, userData.user);
     }
 
-    if (action === 'connect') {
-      return connectUser(adminClient, userData.user, body);
+    if (action === 'invite' || action === 'connect') {
+      return inviteUser(adminClient, userData.user, body);
+    }
+    if (action === 'accept_invitation' || action === 'decline_invitation' || action === 'cancel_invitation' || (action === 'block' && body.invitationId)) {
+      return respondToInvitation(adminClient, userData.user, action, body);
+    }
+    if (action === 'disconnect' || action === 'block' || action === 'unblock') {
+      return changeConnection(adminClient, userData.user, action, body);
     }
 
     if (action === 'send_message') {
@@ -72,7 +78,7 @@ async function getCode(adminClient: ReturnType<typeof createClient>, user: AuthU
   });
 }
 
-async function connectUser(
+async function inviteUser(
   adminClient: ReturnType<typeof createClient>,
   user: AuthUser,
   body: Record<string, unknown>,
@@ -98,27 +104,74 @@ async function connectUser(
   await ensureProfile(adminClient, user);
   await ensureProfile(adminClient, targetUser);
 
-  const connection = await ensureConnection(adminClient, user.id, targetUser.id);
-  const [currentUserPartner, targetUserPartner] = await Promise.all([
-    ensurePartnerRecord(adminClient, user.id, targetUser, connection.id),
-    ensurePartnerRecord(adminClient, targetUser.id, user, connection.id),
-  ]);
+  const { data: connection } = await adminClient.from('accountability_app_connections')
+    .select('status').or(`and(requester_user_id.eq.${user.id},recipient_user_id.eq.${targetUser.id}),and(requester_user_id.eq.${targetUser.id},recipient_user_id.eq.${user.id})`).maybeSingle();
+  if (connection?.status === 'active') return jsonResponse({ error: 'You are already Dallas buddies.' }, 400);
+  if (connection?.status === 'blocked') return jsonResponse({ error: 'This Dallas buddy connection is blocked.' }, 400);
+  const { data: declined } = await adminClient.from('accountability_app_invitations').select('created_at')
+    .eq('requester_user_id', user.id).eq('recipient_user_id', targetUser.id).eq('status', 'declined').order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (declined) {
+    const eligibleAt = new Date(new Date(declined.created_at).getTime() + 7 * 86400000);
+    if (eligibleAt > new Date()) return jsonResponse({ error: `You can invite again on ${eligibleAt.toLocaleDateString()}.` }, 400);
+  }
+  const { data: invitation, error: invitationError } = await adminClient.from('accountability_app_invitations').insert({ requester_user_id: user.id, recipient_user_id: targetUser.id }).select('id').single();
+  if (invitationError) return jsonResponse({ error: invitationError.message }, 400);
 
   await sendPushNotification(adminClient, targetUser.id, {
-    body: `${getUserDisplayName(user)} added you as a Dallas accountability partner.`,
+    body: `${getUserDisplayName(user)} invited you to be a Dallas accountability buddy.`,
     data: {
-      connectionId: connection.id,
       route: '/dallas-app-buddies',
-      type: 'accountability_connection',
+      type: 'accountability_invitation',
     },
-    title: 'New Dallas accountability partner',
+    title: 'New buddy request',
   });
 
   return jsonResponse({
-    connectionId: connection.id,
-    partnerId: currentUserPartner.id,
-    reciprocalPartnerId: targetUserPartner.id,
+    invitationId: invitation.id,
   });
+}
+
+async function respondToInvitation(adminClient: ReturnType<typeof createClient>, user: AuthUser, action: string, body: Record<string, unknown>) {
+  const invitationId = String(body.invitationId ?? '');
+  const { data: invitation, error } = await adminClient.from('accountability_app_invitations').select('*').eq('id', invitationId).maybeSingle();
+  if (error || !invitation || invitation.status !== 'pending') return jsonResponse({ error: 'This invitation is no longer pending.' }, 400);
+  const isRecipient = invitation.recipient_user_id === user.id;
+  if ((action === 'cancel_invitation' && invitation.requester_user_id !== user.id) || (action !== 'cancel_invitation' && !isRecipient)) return jsonResponse({ error: 'You cannot change this invitation.' }, 403);
+  const status = action === 'accept_invitation' ? 'accepted' : action === 'decline_invitation' ? 'declined' : action === 'block' ? 'blocked' : 'cancelled';
+  await adminClient.from('accountability_app_invitations').update({ status, responded_at: new Date().toISOString(), cancelled_at: status === 'cancelled' ? new Date().toISOString() : null, blocked_by_user_id: status === 'blocked' ? user.id : null }).eq('id', invitation.id);
+  if (status === 'blocked') {
+    const connection = await ensureConnection(adminClient, invitation.requester_user_id, invitation.recipient_user_id);
+    await adminClient.from('accountability_app_connections').update({
+      status: 'blocked',
+      blocked_at: new Date().toISOString(),
+      blocked_by_user_id: user.id,
+    }).eq('id', connection.id);
+    return jsonResponse({ connectionId: connection.id, status });
+  }
+  if (status !== 'accepted') return jsonResponse({ status });
+  const requester = await getUserById(adminClient, invitation.requester_user_id);
+  if (!requester) return jsonResponse({ error: 'Requester was not found.' }, 404);
+  const connection = await ensureConnection(adminClient, invitation.requester_user_id, invitation.recipient_user_id);
+  await Promise.all([ensurePartnerRecord(adminClient, invitation.requester_user_id, user, connection.id), ensurePartnerRecord(adminClient, invitation.recipient_user_id, requester, connection.id)]);
+  return jsonResponse({ connectionId: connection.id, status });
+}
+
+async function changeConnection(adminClient: ReturnType<typeof createClient>, user: AuthUser, action: string, body: Record<string, unknown>) {
+  const connectionId = String(body.connectionId ?? '');
+  const { data: connection } = await adminClient.from('accountability_app_connections').select('*').eq('id', connectionId).maybeSingle();
+  if (!connection || ![connection.requester_user_id, connection.recipient_user_id].includes(user.id)) return jsonResponse({ error: 'Connection not found.' }, 404);
+  if (action === 'unblock') {
+    if (connection.status !== 'blocked' || connection.blocked_by_user_id !== user.id) return jsonResponse({ error: 'Only the blocker can unblock this buddy.' }, 403);
+    await adminClient.from('accountability_app_connections').delete().eq('id', connectionId);
+    return jsonResponse({ status: 'unblocked' });
+  }
+  await adminClient.from('accountability_partners').delete().eq('app_connection_id', connectionId);
+  if (action === 'block') {
+    await adminClient.from('accountability_app_connections').update({ status: 'blocked', blocked_by_user_id: user.id, blocked_at: new Date().toISOString() }).eq('id', connectionId);
+    return jsonResponse({ status: 'blocked' });
+  }
+  await adminClient.from('accountability_app_connections').delete().eq('id', connectionId);
+  return jsonResponse({ status: 'disconnected' });
 }
 
 async function sendMessage(

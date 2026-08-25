@@ -13,7 +13,8 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Link, useFocusEffect } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
@@ -38,7 +39,25 @@ type HomeProfile = {
 type HomeContext = {
   currentCheckIn: { note: string | null } | null;
   eventPlan: { event_date: string; event_name: string } | null;
-  plannedCheckIn: { note: string | null; scheduled_at: string } | null;
+  futureReminders: HomeReminder[];
+  plannedCheckIns: HomePlannedCheckIn[];
+};
+
+type HomePlannedCheckIn = {
+  id: string;
+  note: string | null;
+  notification_id: string | null;
+  partner_id: string;
+  partner_name: string;
+  scheduled_at: string;
+};
+
+type HomeReminder = {
+  id: string;
+  kind: 'check_in' | 'personal';
+  label: string;
+  scheduled_at: string;
+  title: string;
 };
 
 const homeLinks = [
@@ -64,13 +83,13 @@ const homeLinks = [
     description: 'Partners, check-ins, and shared commitments.',
     href: '/accountability',
     icon: 'groups',
-    label: 'Accountability',
+    label: 'Reminders',
   },
   {
     description: 'Dallas app buddy messages, check-ins, and settings.',
     href: '/dallas-app-buddies',
     icon: 'forum',
-    label: 'Dallas App Buddies',
+    label: 'Check-in',
   },
   {
     description: 'Prepare before and after an event.',
@@ -88,7 +107,7 @@ const homeLinks = [
     description: 'Notification schedules and recovery prompts.',
     href: '/reminders',
     icon: 'notifications',
-    label: 'Reminders',
+    label: 'Reminder settings',
   },
   {
     description: 'Preferred name, phone number, and account settings.',
@@ -126,6 +145,7 @@ function getPublicHomeCoverUrl(path: string) {
 }
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [authMode, setAuthMode] = useState<AuthMode>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -142,15 +162,33 @@ export default function HomeScreen() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [pushStatus, setPushStatus] = useState('Not requested');
-  const [homeContext, setHomeContext] = useState<HomeContext>({ currentCheckIn: null, eventPlan: null, plannedCheckIn: null });
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [homeContext, setHomeContext] = useState<HomeContext>({ currentCheckIn: null, eventPlan: null, futureReminders: [], plannedCheckIns: [] });
+  const [completingCheckIn, setCompletingCheckIn] = useState(false);
+  const [startingCheckIn, setStartingCheckIn] = useState(false);
+  const [homeMessage, setHomeMessage] = useState('');
+  const [selectedCheckInId, setSelectedCheckInId] = useState<string | null>(null);
   const configured = useMemo(() => isSupabaseConfigured(), []);
   const preferredNameFromSession = profile?.display_name ?? getPreferredName(session);
   const avatarUrl = profile?.avatar_path ? getPublicAvatarUrl(profile.avatar_path) : getAvatarUrl(session);
-  const hasPlannedCheckInToday = homeContext.plannedCheckIn ? isHomeDateToday(homeContext.plannedCheckIn.scheduled_at) : false;
+  const nextPlannedCheckIn = homeContext.plannedCheckIns[0] ?? null;
+  const selectedCheckIn = homeContext.plannedCheckIns.find((checkIn) => checkIn.id === selectedCheckInId) ?? null;
+  const hasPlannedCheckInToday = nextPlannedCheckIn ? isHomeDateToday(nextPlannedCheckIn.scheduled_at) : false;
+  const checkInWindowActive = nextPlannedCheckIn
+    ? isCheckInWindowActive(nextPlannedCheckIn.scheduled_at, currentTime)
+    : false;
+  const selectedCheckInWindowActive = selectedCheckIn
+    ? isCheckInWindowActive(selectedCheckIn.scheduled_at, currentTime)
+    : false;
   const homeCoverUrl = profile?.home_cover_image_path
     ? getPublicHomeCoverUrl(profile.home_cover_image_path)
     : '';
   const primaryHomeLinks = homeLinks.filter((item) => primaryHomeHrefs.has(item.href));
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -236,7 +274,7 @@ export default function HomeScreen() {
         if (!data.session) {
           setAccountabilityUnreadCount(0);
           setBuddiesUnreadCount(0);
-          setHomeContext({ currentCheckIn: null, eventPlan: null, plannedCheckIn: null });
+          setHomeContext({ currentCheckIn: null, eventPlan: null, futureReminders: [], plannedCheckIns: [] });
           setAvatarFailed(false);
           setProfile(null);
           return;
@@ -266,6 +304,75 @@ export default function HomeScreen() {
     }
 
     setImportantInfoAccepted(true);
+  }
+
+  async function handleCompleteCheckIn() {
+    if (!session || !selectedCheckIn || completingCheckIn || startingCheckIn) {
+      return;
+    }
+
+    setCompletingCheckIn(true);
+    setHomeMessage('');
+
+    const { error } = await supabase.from('accountability_check_ins').insert({
+      note: selectedCheckIn.note,
+      partner_id: selectedCheckIn.partner_id,
+      user_id: session.user.id,
+    });
+
+    if (error) {
+      setHomeMessage(error.message);
+    } else {
+      const removed = await removePlannedCheckIn(selectedCheckIn);
+      setHomeMessage(removed
+        ? `Check-in with ${selectedCheckIn.partner_name} completed.`
+        : 'Check-in was completed, but the planned reminder could not be removed.');
+    }
+
+    setCompletingCheckIn(false);
+  }
+
+  async function handleCheckInNow() {
+    if (!session || !selectedCheckIn || completingCheckIn || startingCheckIn) {
+      return;
+    }
+
+    setStartingCheckIn(true);
+    setHomeMessage('');
+
+    const removed = await removePlannedCheckIn(selectedCheckIn);
+
+    if (removed) {
+      router.push(`/dallas-app-buddies?buddyId=${encodeURIComponent(selectedCheckIn.partner_id)}`);
+    }
+
+    setStartingCheckIn(false);
+  }
+
+  async function removePlannedCheckIn(checkIn: HomePlannedCheckIn) {
+    if (!session) {
+      return false;
+    }
+
+    const { error } = await supabase
+      .from('accountability_planned_check_ins')
+      .delete()
+      .eq('id', checkIn.id)
+      .eq('user_id', session.user.id);
+
+    if (error) {
+      setHomeMessage(error.message);
+      return false;
+    }
+
+    if (checkIn.notification_id) {
+      await Notifications.cancelScheduledNotificationAsync(checkIn.notification_id).catch(() => null);
+    }
+
+    const context = await loadHomeContext(session.user.id);
+    setHomeContext(context);
+    setSelectedCheckInId(null);
+    return true;
   }
 
   async function loadUnreadCounts(userId: string, active = true) {
@@ -569,19 +676,47 @@ export default function HomeScreen() {
               <Text style={styles.sectionEyebrow}>Today</Text>
               <Text style={styles.sectionHeading}>What would help right now?</Text>
               <Text style={styles.sectionCopy}>A short check-in can help you choose your next supportive step.</Text>
-              <View style={styles.checkInStatusRow}>
-                <View style={[styles.statusDot, homeContext.currentCheckIn ? styles.statusDotComplete : styles.statusDotPending]} />
+              <View style={[styles.checkInStatusRow, checkInWindowActive && styles.checkInWindowStatusRow]}>
+                <View style={[
+                  styles.statusDot,
+                  homeContext.currentCheckIn ? styles.statusDotComplete : styles.statusDotPending,
+                  checkInWindowActive && styles.checkInWindowDot,
+                ]} />
                 <Text style={styles.checkInStatusText}>
-                  {homeContext.currentCheckIn?.note || (hasPlannedCheckInToday ? 'Check-in planned for today' : 'No check-in recorded today')}
+                  {homeContext.currentCheckIn?.note || (hasPlannedCheckInToday
+                    ? `Check-in planned with ${nextPlannedCheckIn?.partner_name ?? 'your buddy'}`
+                    : 'No check-in recorded today')}
                 </Text>
               </View>
-              {homeContext.plannedCheckIn ? (
-                <View style={styles.upcomingRow}>
-                  <MaterialIcons color={colors.support} name="schedule" size={20} />
-                  <View style={styles.upcomingCopy}>
-                    <Text style={styles.upcomingLabel}>Next planned check-in</Text>
-                    <Text style={styles.upcomingValue}>{formatHomeDate(homeContext.plannedCheckIn.scheduled_at)}</Text>
-                  </View>
+              {homeContext.futureReminders.length ? (
+                <View style={styles.reminderList}>
+                  <Text style={styles.reminderListLabel}>Upcoming reminders</Text>
+                  {homeContext.futureReminders.map((reminder) => reminder.kind === 'check_in' ? (
+                    <Pressable
+                      key={`${reminder.kind}-${reminder.id}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: selectedCheckInId === reminder.id }}
+                      onPress={() => {
+                        setSelectedCheckInId(reminder.id);
+                        setHomeMessage('');
+                      }}
+                      style={[styles.upcomingRow, styles.selectableReminderRow, selectedCheckInId === reminder.id && styles.selectedReminderRow]}
+                    >
+                      <MaterialIcons color={reminder.kind === 'check_in' ? colors.support : colors.primary} name={reminder.kind === 'check_in' ? 'schedule' : 'notifications'} size={20} />
+                      <View style={styles.upcomingCopy}>
+                        <Text style={styles.upcomingLabel}>{reminder.label}</Text>
+                        <Text style={styles.upcomingValue}>{reminder.title} · {formatHomeDate(reminder.scheduled_at)}</Text>
+                      </View>
+                    </Pressable>
+                  ) : (
+                    <View key={`${reminder.kind}-${reminder.id}`} style={styles.upcomingRow}>
+                      <MaterialIcons color={colors.primary} name="notifications" size={20} />
+                      <View style={styles.upcomingCopy}>
+                        <Text style={styles.upcomingLabel}>{reminder.label}</Text>
+                        <Text style={styles.upcomingValue}>{reminder.title} · {formatHomeDate(reminder.scheduled_at)}</Text>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               ) : null}
               {homeContext.eventPlan ? (
@@ -595,12 +730,47 @@ export default function HomeScreen() {
                   </Pressable>
                 </Link>
               ) : null}
-              <Link href="/accountability" asChild>
-                <Pressable accessibilityRole="button" style={styles.primaryAction}>
-                  <MaterialIcons color={colors.white} name="check-circle" size={22} />
-                  <Text style={styles.primaryActionText}>Check in now</Text>
-                </Pressable>
-              </Link>
+              {homeContext.plannedCheckIns.length ? (
+                <>
+                  {selectedCheckIn ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: completingCheckIn || startingCheckIn }}
+                      disabled={completingCheckIn || startingCheckIn}
+                      onPress={handleCheckInNow}
+                      style={StyleSheet.flatten([
+                        styles.primaryAction,
+                        selectedCheckInWindowActive && styles.checkInWindowAction,
+                        (completingCheckIn || startingCheckIn) && styles.disabledAction,
+                      ])}
+                    >
+                      <MaterialIcons color={colors.white} name="check-circle" size={22} />
+                      <Text style={styles.primaryActionText}>{startingCheckIn ? 'Opening...' : 'Check in now'}</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: true }}
+                      disabled
+                      style={[styles.primaryAction, styles.disabledAction]}
+                    >
+                      <MaterialIcons color={colors.white} name="check-circle" size={22} />
+                      <Text style={styles.primaryActionText}>Check in now</Text>
+                    </Pressable>
+                  )}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: !selectedCheckIn || completingCheckIn || startingCheckIn }}
+                    disabled={!selectedCheckIn || completingCheckIn || startingCheckIn}
+                    onPress={handleCompleteCheckIn}
+                    style={[styles.completeCheckInAction, (!selectedCheckIn || completingCheckIn || startingCheckIn) && styles.disabledAction]}
+                  >
+                    <MaterialIcons color={selectedCheckIn && !startingCheckIn ? colors.primary : colors.muted} name="task-alt" size={22} />
+                    <Text style={[styles.completeCheckInActionText, (!selectedCheckIn || startingCheckIn) && styles.disabledCompleteCheckInActionText]}>{completingCheckIn ? 'Completing...' : 'Complete check-in'}</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              {homeMessage ? <Text style={styles.homeMessage}>{homeMessage}</Text> : null}
             </View>
 
             <View style={styles.homeSection}>
@@ -610,8 +780,8 @@ export default function HomeScreen() {
                   <Pressable style={styles.supportCard}>
                     <MaterialIcons color={colors.support} name="groups" size={22} />
                     <View style={styles.supportCardCopy}>
-                      <Text style={styles.supportCardTitle}>Accountability</Text>
-                      <Text style={styles.supportCardText}>{accountabilityUnreadCount ? `${accountabilityUnreadCount} unread` : 'Check in with your people'}</Text>
+                  <Text style={styles.supportCardTitle}>Reminders</Text>
+                  <Text style={styles.supportCardText}>{accountabilityUnreadCount ? `${accountabilityUnreadCount} unread` : 'Plan reminders with your people'}</Text>
                     </View>
                   </Pressable>
                 </Link>
@@ -619,7 +789,7 @@ export default function HomeScreen() {
                   <Pressable style={styles.supportCard}>
                     <MaterialIcons color={colors.primary} name="forum" size={22} />
                     <View style={styles.supportCardCopy}>
-                      <Text style={styles.supportCardTitle}>Buddies</Text>
+                  <Text style={styles.supportCardTitle}>Check-in</Text>
                       <Text style={styles.supportCardText}>{buddiesUnreadCount ? `${buddiesUnreadCount} unread` : 'Message a Dallas buddy'}</Text>
                     </View>
                   </Pressable>
@@ -669,7 +839,7 @@ export default function HomeScreen() {
                 {[
                   { href: '/ai-support', icon: 'psychology', label: 'AI support' },
                   { href: '/prophetic-vision', icon: 'auto-awesome', label: 'Prophetic Vision' },
-                  { href: '/reminders', icon: 'notifications-none', label: 'Reminders' },
+                  { href: '/reminders', icon: 'notifications-none', label: 'Reminder settings' },
                   { href: '/profile', icon: 'person', label: 'Profile' },
                 ].map((item) => (
                   <Link key={item.href} href={item.href as never} asChild>
@@ -920,7 +1090,7 @@ async function loadHomeContext(userId: string): Promise<HomeContext> {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [currentCheckInResult, checkInResult, eventResult] = await Promise.all([
+  const [currentCheckInResult, plannedCheckInsResult, recoveryRemindersResult, eventResult] = await Promise.all([
     supabase
       .from('accountability_check_ins')
       .select('note')
@@ -931,12 +1101,18 @@ async function loadHomeContext(userId: string): Promise<HomeContext> {
       .maybeSingle(),
     supabase
       .from('accountability_planned_check_ins')
-      .select('note, scheduled_at')
+      .select('id, note, notification_id, partner_id, scheduled_at')
       .eq('user_id', userId)
       .gte('scheduled_at', new Date().toISOString())
-      .order('scheduled_at', { ascending: true })
-      .limit(1)
-      .maybeSingle(),
+      .order('scheduled_at', { ascending: true }),
+    supabase
+      .from('recovery_reminders')
+      .select('id, scheduled_at, title')
+      .eq('user_id', userId)
+      .eq('enabled', true)
+      .eq('status', 'scheduled')
+      .gte('scheduled_at', new Date().toISOString())
+      .order('scheduled_at', { ascending: true }),
     supabase
       .from('event_plans')
       .select('event_date, event_name')
@@ -945,6 +1121,40 @@ async function loadHomeContext(userId: string): Promise<HomeContext> {
       .limit(10),
   ]);
 
+  const plannedCheckIns = plannedCheckInsResult.data ?? [];
+  const partnerIds = [...new Set(plannedCheckIns.map((checkIn) => checkIn.partner_id))];
+  let partnerNames = new Map<string, string>();
+
+  if (partnerIds.length) {
+    const { data: partners } = await supabase
+      .from('accountability_partners')
+      .select('id, name')
+      .in('id', partnerIds);
+    partnerNames = new Map((partners ?? []).map((partner) => [partner.id, partner.name]));
+  }
+
+  const plannedCheckInsWithBuddies: HomePlannedCheckIn[] = plannedCheckIns.map((checkIn) => ({
+    ...checkIn,
+    partner_name: partnerNames.get(checkIn.partner_id) ?? 'your buddy',
+  }));
+
+  const futureReminders: HomeReminder[] = [
+    ...plannedCheckInsWithBuddies.map((checkIn) => ({
+      id: checkIn.id,
+      kind: 'check_in' as const,
+      label: `Check-in planned with ${checkIn.partner_name}`,
+      scheduled_at: checkIn.scheduled_at,
+      title: checkIn.note || 'Planned check-in',
+    })),
+    ...(recoveryRemindersResult.data ?? []).map((reminder) => ({
+      id: reminder.id,
+      kind: 'personal' as const,
+      label: 'Personal reminder',
+      scheduled_at: reminder.scheduled_at,
+      title: reminder.title,
+    })),
+  ].sort((left, right) => Date.parse(left.scheduled_at) - Date.parse(right.scheduled_at));
+
   const eventPlan = (eventResult.data ?? [])
     .filter((plan) => typeof plan.event_date === 'string' && plan.event_date.trim() && isHomeDateUpcoming(plan.event_date))
     .sort((a, b) => compareHomeDates(a.event_date, b.event_date))[0] ?? null;
@@ -952,7 +1162,8 @@ async function loadHomeContext(userId: string): Promise<HomeContext> {
   return {
     currentCheckIn: currentCheckInResult.data ?? null,
     eventPlan,
-    plannedCheckIn: checkInResult.data ?? null,
+    futureReminders,
+    plannedCheckIns: plannedCheckInsWithBuddies,
   };
 }
 
@@ -998,6 +1209,18 @@ function isHomeDateToday(value: string, now = new Date()) {
     && parsed.getFullYear() === now.getFullYear()
     && parsed.getMonth() === now.getMonth()
     && parsed.getDate() === now.getDate();
+}
+
+function isCheckInWindowActive(value: string, now = new Date()) {
+  const scheduledTime = Date.parse(value);
+  const tenMinutes = 10 * 60 * 1000;
+
+  if (Number.isNaN(scheduledTime)) {
+    return false;
+  }
+
+  const difference = scheduledTime - now.getTime();
+  return difference >= -tenMinutes && difference <= tenMinutes;
 }
 
 function formatHomeDate(value: string) {
@@ -1449,11 +1672,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingHorizontal: 16,
   },
+  checkInWindowAction: {
+    backgroundColor: '#A33D32',
+  },
   primaryActionText: {
     color: colors.white,
     fontFamily: 'Manrope',
     fontSize: type.button,
     fontWeight: '900',
+  },
+  completeCheckInAction: {
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderColor: colors.primary,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 50,
+    paddingHorizontal: 16,
+  },
+  completeCheckInActionText: {
+    color: colors.primary,
+    fontFamily: 'Manrope',
+    fontSize: type.button,
+    fontWeight: '900',
+  },
+  disabledCompleteCheckInActionText: {
+    color: colors.muted,
+  },
+  disabledAction: {
+    opacity: 0.6,
+  },
+  homeMessage: {
+    color: colors.primary,
+    fontFamily: 'Manrope',
+    fontSize: type.supporting,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   checkInStatusRow: {
     alignItems: 'center',
@@ -1463,6 +1720,11 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 42,
     paddingHorizontal: 10,
+  },
+  checkInWindowStatusRow: {
+    backgroundColor: '#FFF1EF',
+    borderColor: '#E7BDB7',
+    borderWidth: 1,
   },
   statusDot: {
     borderRadius: 5,
@@ -1474,6 +1736,9 @@ const styles = StyleSheet.create({
   },
   statusDotPending: {
     backgroundColor: colors.warning,
+  },
+  checkInWindowDot: {
+    backgroundColor: '#A33D32',
   },
   checkInStatusText: {
     color: colors.ink,
@@ -1490,6 +1755,25 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 48,
     paddingHorizontal: 10,
+  },
+  selectableReminderRow: {
+    borderColor: 'transparent',
+    borderWidth: 1,
+  },
+  selectedReminderRow: {
+    backgroundColor: '#E4EEE8',
+    borderColor: colors.primary,
+  },
+  reminderList: {
+    gap: 6,
+  },
+  reminderListLabel: {
+    color: colors.quiet,
+    fontFamily: 'Manrope',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   upcomingCopy: {
     flex: 1,

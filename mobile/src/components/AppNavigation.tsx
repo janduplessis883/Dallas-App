@@ -1,8 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Link, usePathname, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/designTokens';
+import { supabase } from '../lib/supabase';
 
 const navigationItems = [
   { activeBackground: '#EEF1EC', activeColor: '#2E4737', href: '/', icon: 'home', label: 'Home', routes: ['/'] },
@@ -18,8 +20,8 @@ const navigationItems = [
     activeBackground: '#EEF1EC',
     activeColor: '#2E4737',
     href: '/accountability',
-    icon: 'check-circle',
-    label: 'Check-in',
+    icon: 'notifications',
+    label: 'Reminders',
     routes: ['/accountability'],
   },
   {
@@ -27,7 +29,7 @@ const navigationItems = [
     activeColor: '#2E4737',
     href: '/dallas-app-buddies',
     icon: 'groups',
-    label: 'Buddies',
+    label: 'Check-in',
     routes: ['/dallas-app-buddies'],
   },
   {
@@ -45,11 +47,38 @@ export function AppNavigation() {
   const pathname = usePathname();
   const router = useRouter();
   const canGoBack = pathname !== '/' && router.canGoBack();
+  const [pendingInvitations, setPendingInvitations] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const checkInBadgeCount = pendingInvitations + unreadMessageCount;
+
+  useEffect(() => {
+    async function loadCheckInBadge() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user.id;
+
+      if (!userId) {
+        setPendingInvitations(0);
+        setUnreadMessageCount(0);
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('get_check_in_badge');
+      const badge = !error && data?.[0] ? data[0] : null;
+
+      setPendingInvitations(Number(badge?.pending_invitation_count ?? 0));
+      setUnreadMessageCount(
+        Number(badge?.unread_app_message_count ?? 0)
+        + Number(badge?.unread_external_reply_count ?? 0),
+      );
+    }
+
+    loadCheckInBadge();
+  }, [pathname]);
 
   return (
     <View pointerEvents="box-none" style={styles.overlay}>
       {canGoBack ? (
-        <View pointerEvents="box-none" style={[styles.topBar, { top: insets.top + 12 }]}>
+        <View pointerEvents="box-none" style={[styles.topBar, { top: Math.max(4, insets.top - 16) }]}>
           <Pressable
             accessibilityLabel="Go back"
             accessibilityRole="button"
@@ -78,6 +107,11 @@ export function AppNavigation() {
                   }
                 >
                   <MaterialIcons color={active ? item.activeColor : '#777777'} name={item.icon} size={25} />
+                  {item.href === '/dallas-app-buddies' && checkInBadgeCount ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{checkInBadgeCount > 99 ? '99+' : checkInBadgeCount}</Text>
+                    </View>
+                  ) : null}
                   <Text style={[styles.label, active && { color: item.activeColor }]}>{item.label}</Text>
                 </Pressable>
               </Link>
@@ -112,9 +146,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: 4,
-    minHeight: 44,
+    minHeight: 38,
     paddingHorizontal: 10,
-    paddingVertical: 2,
+    paddingVertical: 0,
   },
   topBackLabel: {
     color: colors.quiet,
@@ -153,4 +187,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  badge: { alignItems: 'center', backgroundColor: '#A33D32', borderRadius: 9, height: 18, justifyContent: 'center', position: 'absolute', right: 12, top: 2, minWidth: 18 },
+  badgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
 });

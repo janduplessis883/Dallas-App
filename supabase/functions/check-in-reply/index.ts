@@ -5,6 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
 };
 
+const maxRepliesPerWindow = 5;
+const replyRateLimitWindowSeconds = 10 * 60;
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -39,6 +42,7 @@ Deno.serve(async (request) => {
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
       const message = String(body.message ?? '').trim();
+      const confirmed = body.confirmed === true;
 
       if (!message) {
         return jsonResponse({ error: 'Enter a reply before sending.' }, 400);
@@ -46,6 +50,10 @@ Deno.serve(async (request) => {
 
       if (message.length > 1000) {
         return jsonResponse({ error: 'Keep replies under 1000 characters.' }, 400);
+      }
+
+      if (!confirmed) {
+        return jsonResponse({ error: 'Confirm that you want to send this reply.' }, 400);
       }
 
       return postReply(adminClient, token, message);
@@ -64,7 +72,7 @@ async function getThread(adminClient: ReturnType<typeof createClient>, token: st
   const thread = await loadThread(adminClient, token);
 
   if (!thread) {
-    return jsonResponse({ error: 'This check-in link is not valid.' }, 404);
+    return jsonResponse({ error: 'This check-in link is invalid or has expired.' }, 404);
   }
 
   const { data: messages, error: messagesError } = await adminClient
@@ -99,7 +107,24 @@ async function postReply(
   const thread = await loadThread(adminClient, token);
 
   if (!thread) {
-    return jsonResponse({ error: 'This check-in link is not valid.' }, 404);
+    return jsonResponse({ error: 'This check-in link is invalid or has expired.' }, 404);
+  }
+
+  const { data: withinRateLimit, error: rateLimitError } = await adminClient.rpc(
+    'consume_check_in_reply_rate_limit',
+    {
+      p_limit: maxRepliesPerWindow,
+      p_thread_id: thread.id,
+      p_window_seconds: replyRateLimitWindowSeconds,
+    },
+  );
+
+  if (rateLimitError) {
+    return jsonResponse({ error: 'Could not validate the reply rate limit.' }, 500);
+  }
+
+  if (!withinRateLimit) {
+    return jsonResponse({ error: 'Too many replies were sent from this link. Please wait 10 minutes and try again.' }, 429);
   }
 
   const { error: messageError } = await adminClient.from('accountability_check_in_messages').insert({
@@ -134,8 +159,9 @@ async function postReply(
 async function loadThread(adminClient: ReturnType<typeof createClient>, token: string) {
   const { data, error } = await adminClient
     .from('accountability_check_in_threads')
-    .select('id, partner_id, status, user_display_name, user_id')
+    .select('id, partner_id, partner_token_expires_at, status, user_display_name, user_id')
     .eq('partner_token', token)
+    .gt('partner_token_expires_at', new Date().toISOString())
     .maybeSingle();
 
   if (error || !data) {
@@ -145,6 +171,7 @@ async function loadThread(adminClient: ReturnType<typeof createClient>, token: s
   return data as {
     id: string;
     partner_id: string;
+    partner_token_expires_at: string;
     status: string;
     user_display_name: string | null;
     user_id: string;
@@ -156,7 +183,7 @@ async function resolveUserDisplayName(
   userId: string,
   threadDisplayName: string | null,
 ) {
-  if (threadDisplayName?.trim()) {
+  if (isDisplayName(threadDisplayName)) {
     return threadDisplayName.trim();
   }
 
@@ -168,7 +195,18 @@ async function resolveUserDisplayName(
 
   const profileDisplayName = typeof data?.display_name === 'string' ? data.display_name.trim() : '';
 
-  return profileDisplayName || 'the Dallas user';
+  if (isDisplayName(profileDisplayName)) {
+    return profileDisplayName;
+  }
+
+  const { data: userData } = await adminClient.auth.admin.getUserById(userId);
+  const preferredName = userData.user?.user_metadata?.preferred_name;
+
+  return isDisplayName(preferredName) ? preferredName.trim() : 'Dallas user';
+}
+
+function isDisplayName(value: unknown): value is string {
+  return typeof value === 'string' && Boolean(value.trim()) && !value.includes('@');
 }
 
 async function sendReplyNotification(

@@ -29,9 +29,16 @@ type ProfileRow = {
   phone_number: string | null;
 };
 
+type BlockedBuddy = {
+  connectionId: string;
+  name: string;
+};
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [blockedBuddies, setBlockedBuddies] = useState<BlockedBuddy[]>([]);
+  const [blockedBuddiesExpanded, setBlockedBuddiesExpanded] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [displayName, setDisplayName] = useState('');
@@ -47,6 +54,7 @@ export default function ProfileScreen() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
+  const [unblockingConnectionId, setUnblockingConnectionId] = useState('');
 
   const signedUpAt = useMemo(() => formatDate(session?.user.created_at), [session]);
 
@@ -67,6 +75,8 @@ export default function ProfileScreen() {
         setLoading(false);
         return;
       }
+
+      await loadBlockedBuddies(nextSession.user.id);
 
       const metadata = nextSession.user.user_metadata;
       setDisplayName(getMetadataValue(metadata.preferred_name));
@@ -114,6 +124,57 @@ export default function ProfileScreen() {
       mounted = false;
     };
   }, []);
+
+  async function loadBlockedBuddies(userId: string) {
+    const { data: connections, error: connectionError } = await supabase
+      .from('accountability_app_connections')
+      .select('id, requester_user_id, recipient_user_id')
+      .eq('status', 'blocked')
+      .eq('blocked_by_user_id', userId);
+
+    if (connectionError || !connections?.length) {
+      setBlockedBuddies([]);
+      return;
+    }
+
+    const buddyIds = connections.map((connection) => (
+      connection.requester_user_id === userId ? connection.recipient_user_id : connection.requester_user_id
+    ));
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', buddyIds);
+    const names = new Map((profiles ?? []).map((profile) => [profile.id, profile.display_name]));
+
+    setBlockedBuddies(connections.map((connection) => {
+      const buddyId = connection.requester_user_id === userId
+        ? connection.recipient_user_id
+        : connection.requester_user_id;
+      return {
+        connectionId: connection.id,
+        name: names.get(buddyId) || 'Dallas buddy',
+      };
+    }));
+  }
+
+  async function handleUnblockBuddy(connectionId: string) {
+    setUnblockingConnectionId(connectionId);
+    setMessage('');
+    const { data, error } = await supabase.functions.invoke('accountability-app', {
+      body: { action: 'unblock', connectionId },
+    });
+    setUnblockingConnectionId('');
+
+    if (error || data?.error) {
+      setMessage(error?.message ?? data?.error ?? 'Could not unblock this buddy.');
+      return;
+    }
+
+    if (session) {
+      await loadBlockedBuddies(session.user.id);
+    }
+    setMessage('Buddy unblocked. You can send a new invitation when you are ready.');
+  }
 
   async function handleSaveProfile() {
     if (!session) {
@@ -173,25 +234,12 @@ export default function ProfileScreen() {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const asset = await chooseProfileImage([1, 1], (message) => setMessage(message));
 
-    if (!permission.granted) {
-      setMessage('Photo library permission is needed to choose an avatar.');
+    if (!asset) {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      mediaTypes: ['images'],
-      quality: 0.8,
-    });
-
-    if (result.canceled) {
-      return;
-    }
-
-    const asset = result.assets[0];
     const contentType = asset.mimeType ?? 'image/jpeg';
     const extension = getImageExtension(contentType, asset.uri);
     const avatarPath = `${session.user.id}/avatar.${extension}`;
@@ -258,25 +306,12 @@ export default function ProfileScreen() {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const asset = await chooseProfileImage([16, 10], (message) => setMessage(message));
 
-    if (!permission.granted) {
-      setMessage('Photo library permission is needed to choose a home cover image.');
+    if (!asset) {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [16, 10],
-      mediaTypes: ['images'],
-      quality: 0.86,
-    });
-
-    if (result.canceled) {
-      return;
-    }
-
-    const asset = result.assets[0];
     const contentType = asset.mimeType ?? 'image/jpeg';
     const extension = getImageExtension(contentType, asset.uri);
     const coverPath = `${session.user.id}/home-cover.${extension}`;
@@ -614,6 +649,41 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
 
+          <View style={styles.panel}>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.toggleRow}
+              onPress={() => setBlockedBuddiesExpanded((expanded) => !expanded)}
+            >
+              <View style={styles.toggleCopy}>
+                <Text style={styles.panelTitle}>Blocked buddies</Text>
+                <Text style={styles.mutedText}>
+                  {blockedBuddies.length
+                    ? `${blockedBuddies.length} blocked ${blockedBuddies.length === 1 ? 'buddy' : 'buddies'}`
+                    : 'No blocked buddies'}
+                </Text>
+              </View>
+              <Text style={styles.toggleIndicator}>{blockedBuddiesExpanded ? 'Hide' : 'Show'}</Text>
+            </Pressable>
+
+            {blockedBuddiesExpanded ? (
+              blockedBuddies.length ? blockedBuddies.map((buddy) => (
+                <View key={buddy.connectionId} style={styles.blockedBuddyRow}>
+                  <Text style={styles.blockedBuddyName}>{buddy.name}</Text>
+                  <Pressable
+                    disabled={unblockingConnectionId === buddy.connectionId}
+                    style={[styles.secondaryButton, unblockingConnectionId === buddy.connectionId && styles.disabledButton]}
+                    onPress={() => handleUnblockBuddy(buddy.connectionId)}
+                  >
+                    <Text style={styles.secondaryButtonText}>
+                      {unblockingConnectionId === buddy.connectionId ? 'Unblocking...' : 'Unblock'}
+                    </Text>
+                  </Pressable>
+                </View>
+              )) : <Text style={styles.mutedText}>Blocked buddies will appear here.</Text>
+            ) : null}
+          </View>
+
           <View style={[styles.panel, styles.dangerPanel]}>
             <Text style={styles.dangerTitle}>Delete account</Text>
             <Text style={styles.mutedText}>
@@ -649,6 +719,32 @@ function formatDate(value: string | undefined) {
     month: 'short',
     year: 'numeric',
   }).format(new Date(value));
+}
+
+async function chooseProfileImage(
+  aspect: [number, number],
+  onError: (message: string) => void,
+) {
+  try {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      onError('Photo library permission is needed to choose an image. Enable Photos access for Dallas in Settings and try again.');
+      return null;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true,
+      aspect,
+      mediaTypes: ['images'],
+      quality: 0.86,
+    });
+
+    return result.canceled ? null : result.assets[0] ?? null;
+  } catch (error) {
+    onError(error instanceof Error ? error.message : 'Could not open the photo library. Please try again.');
+    return null;
+  }
 }
 
 function getImageExtension(contentType: string, uri: string) {
@@ -888,6 +984,34 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  toggleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  toggleCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  toggleIndicator: {
+    color: '#2E4737',
+    fontFamily: 'Manrope',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  blockedBuddyRow: {
+    borderTopColor: '#E7E6E2',
+    borderTopWidth: 1,
+    gap: 12,
+    paddingTop: 14,
+  },
+  blockedBuddyName: {
+    color: '#171717',
     fontFamily: 'Manrope',
     fontSize: 16,
     fontWeight: '800',

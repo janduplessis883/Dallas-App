@@ -19,6 +19,7 @@ const userTables = [
   'accountability_planned_check_ins',
   'accountability_check_ins',
   'push_tokens',
+  'recovery_reminders',
   'event_plans',
   'prophetic_visions',
   'accountability_partners',
@@ -58,6 +59,15 @@ Deno.serve(async (request) => {
     }
 
     const userId = userData.user.id;
+
+    const { error: invitationError } = await adminClient
+      .from('accountability_app_invitations')
+      .delete()
+      .or(`requester_user_id.eq.${userId},recipient_user_id.eq.${userId}`);
+
+    if (invitationError) {
+      return jsonResponse({ error: invitationError.message }, 500);
+    }
 
     for (const bucket of userStorageBuckets) {
       await removeStorageFolder(adminClient, bucket, userId);

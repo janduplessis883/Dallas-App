@@ -12,6 +12,7 @@ const submitButton = document.querySelector('#submit-button');
 const passwordInput = document.querySelector('#password');
 const confirmPasswordInput = document.querySelector('#confirm-password');
 const replyMessageInput = document.querySelector('#reply-message');
+const replyConfirmationInput = document.querySelector('#reply-confirmation');
 const threadMessages = document.querySelector('#thread-messages');
 
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -175,11 +176,16 @@ async function submitCheckInReply() {
     return;
   }
 
+  if (!replyConfirmationInput?.checked) {
+    showMessage('Confirm that you want to send this reply.', true);
+    return;
+  }
+
   submitButton.disabled = true;
   submitButton.textContent = 'Sending...';
   showMessage('');
 
-  const { error } = await callCheckInReplyFunction(token, { message: reply });
+  const { error } = await callCheckInReplyFunction(token, { confirmed: true, message: reply });
 
   submitButton.disabled = false;
   submitButton.textContent = 'Send reply';
@@ -190,6 +196,7 @@ async function submitCheckInReply() {
   }
 
   replyMessageInput.value = '';
+  replyConfirmationInput.checked = false;
   showMessage('Reply sent. You can close this page.');
   await initializeCheckInReplyPage();
 }

@@ -1241,18 +1241,18 @@ export default function EventPlanningScreen() {
                       onPress={() => setShowAnchorBuddies((visible) => !visible)}
                     >
                       <View style={styles.buddyCopy}>
-                        <Text style={styles.buddyName}>Dallas App Buddies</Text>
+                        <Text style={styles.buddyName}>Contacts</Text>
                         <Text style={styles.buddyMeta}>
-                          {dallasBuddies.length
-                            ? `${dallasBuddies.length} buddy${dallasBuddies.length === 1 ? '' : 'ies'} available`
-                            : 'No Dallas App Buddies connected yet'}
+                          {dallasBuddies.length + externalAnchors.length
+                            ? `${dallasBuddies.length + externalAnchors.length} contact${dallasBuddies.length + externalAnchors.length === 1 ? '' : 's'} available`
+                            : 'No contacts saved yet'}
                         </Text>
                       </View>
                       <Text style={styles.buddyChevron}>{showAnchorBuddies ? '-' : '+'}</Text>
                     </Pressable>
 
                     {showAnchorBuddies ? (
-                      dallasBuddies.length ? (
+                      dallasBuddies.length || externalAnchors.length ? (
                         <View style={styles.thresholdExpandedList}>
                           <Text style={styles.helperText}>Choose a buddy and set a planned check-in for this event.</Text>
                           {dallasBuddies.map((buddy) => {
@@ -1277,7 +1277,7 @@ export default function EventPlanningScreen() {
                                   </View>
                                   <View style={styles.buddyCopy}>
                                     <Text style={styles.buddyName}>{buddyName}</Text>
-                                    <Text style={styles.buddyMeta}>{expanded ? 'Hide check-in setup' : 'Set check-in'}</Text>
+                                    <Text style={styles.buddyMeta}>In-app Contact · {expanded ? 'Hide check-in setup' : 'Set check-in'}</Text>
                                   </View>
                                   <Text style={styles.buddyChevron}>{expanded ? '-' : '+'}</Text>
                                 </Pressable>
@@ -1368,14 +1368,36 @@ export default function EventPlanningScreen() {
                               </View>
                             );
                           })}
+                          {externalAnchors.map((anchor) => (
+                            <View key={anchor.id} style={styles.buddyCard}>
+                              <View style={styles.buddyRow}>
+                                <View style={styles.buddyAvatar}>
+                                  <Text style={styles.buddyAvatarText}>{getInitial(anchor.name)}</Text>
+                                </View>
+                                <View style={styles.buddyCopy}>
+                                  <Text style={styles.buddyName}>{anchor.name || 'External Contact'}</Text>
+                                  <Text style={styles.buddyMeta}>
+                                    External Contact · {anchor.mobile_number ? 'Text message workflow' : 'Add mobile number in Accountability'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Pressable
+                                disabled={!anchor.mobile_number}
+                                style={[styles.secondaryButton, !anchor.mobile_number && styles.disabledButton]}
+                                onPress={() => handleTextExternalAnchor(anchor)}
+                              >
+                                <Text style={styles.secondaryButtonText}>Prepare text + reply link</Text>
+                              </Pressable>
+                            </View>
+                          ))}
                         </View>
                       ) : (
-                        <Text style={styles.thresholdEmptyText}>No Dallas App Buddies connected yet.</Text>
+                        <Text style={styles.thresholdEmptyText}>No contacts saved yet.</Text>
                       )
                     ) : null}
                   </View>
 
-                  <View style={styles.thresholdExpander}>
+                  {false && <View style={styles.thresholdExpander}>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{ expanded: showExternalAnchors }}
@@ -1426,7 +1448,7 @@ export default function EventPlanningScreen() {
                         <Text style={styles.thresholdEmptyText}>No external accountability contacts saved yet.</Text>
                       )
                     ) : null}
-                  </View>
+                  </View>}
                 </View>
               ) : null}
 
