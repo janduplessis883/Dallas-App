@@ -49,6 +49,7 @@ export function AppNavigation() {
   const canGoBack = pathname !== '/' && router.canGoBack();
   const [pendingInvitations, setPendingInvitations] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
   const checkInBadgeCount = pendingInvitations + unreadMessageCount;
 
   useEffect(() => {
@@ -57,10 +58,14 @@ export function AppNavigation() {
       const userId = sessionData.session?.user.id;
 
       if (!userId) {
+        setIsAdmin(false);
         setPendingInvitations(0);
         setUnreadMessageCount(0);
         return;
       }
+
+      const { data: profile } = await supabase.from('profiles').select('user_role').eq('id', userId).maybeSingle();
+      setIsAdmin(profile?.user_role === 'admin');
 
       const { data, error } = await supabase.rpc('get_check_in_badge');
       const badge = !error && data?.[0] ? data[0] : null;
@@ -92,7 +97,7 @@ export function AppNavigation() {
       ) : null}
       <View style={[styles.navigation, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <View style={styles.navigationRow}>
-          {navigationItems.map((item) => {
+          {[...navigationItems, ...(isAdmin ? [{ activeBackground: '#EEF1EC', activeColor: '#2E4737', href: '/moderation' as const, icon: 'gavel' as const, label: 'Moderation', routes: ['/moderation'] as const }] : [])].map((item) => {
             const active = item.routes.includes(pathname as never);
 
             return (

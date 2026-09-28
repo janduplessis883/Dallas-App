@@ -58,12 +58,14 @@ type BuddyMessage = {
   created_at: string;
   id: string;
   sender_user_id: string;
+  moderation_removed_at?: string | null;
 };
 
 type ExternalReply = {
   body: string;
   created_at: string;
   id: string;
+  moderation_removed_at?: string | null;
 };
 
 type CompletedCheckIn = {
@@ -186,6 +188,9 @@ export default function DallasAppBuddiesScreen() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [deletingBuddy, setDeletingBuddy] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [reportingMessage, setReportingMessage] = useState<{ id: string; source: 'buddy_message' | 'external_check_in_reply'; preview: string } | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [submittingReport, setSubmittingReport] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [settings, setSettings] = useState<BuddySettings>(emptySettings);
   const [session, setSession] = useState<Session | null>(null);
@@ -453,7 +458,7 @@ export default function DallasAppBuddiesScreen() {
 
     const { data, error } = await supabase
       .from('accountability_app_messages')
-      .select('body, created_at, id, sender_user_id')
+      .select('body, created_at, id, sender_user_id, moderation_removed_at')
       .eq('connection_id', connectionId)
       .order('created_at', { ascending: true })
       .limit(80);
@@ -473,7 +478,7 @@ export default function DallasAppBuddiesScreen() {
   async function loadExternalReplies(partnerId: string, mounted = true) {
     const { data, error } = await supabase
       .from('accountability_check_in_messages')
-      .select('body, created_at, id')
+      .select('body, created_at, id, moderation_removed_at')
       .eq('partner_id', partnerId)
       .eq('sender_type', 'partner')
       .order('created_at', { ascending: true })
@@ -1085,6 +1090,24 @@ export default function DallasAppBuddiesScreen() {
     ? 'You'
     : latestBuddyProfile?.display_name || latestBuddy?.name || 'Your buddy';
 
+  async function submitMessageReport() {
+    if (!reportingMessage || !reportReason.trim()) return;
+    setSubmittingReport(true);
+    const { data, error } = await supabase.functions.invoke('submit-message-report', {
+      body: { source: reportingMessage.source, messageId: reportingMessage.id, reason: reportReason.trim(), requestKey: crypto.randomUUID() },
+    });
+    setSubmittingReport(false);
+    if (error || data?.error) {
+      setMessage(data?.error ?? await getFunctionErrorMessage(error));
+      return;
+    }
+    setMessage(data?.emailStatus === 'sent'
+      ? 'Thanks. Your report was sent to Dallas support for review.'
+      : 'Thanks. Your report was saved and queued for delivery to Dallas support.');
+    setReportingMessage(null);
+    setReportReason('');
+  }
+
   return (
     <SafeAreaView style={styles.screen}>
       <Modal
@@ -1124,6 +1147,20 @@ export default function DallasAppBuddiesScreen() {
                   {deletingBuddy ? 'Removing...' : expandedBuddy?.partner_kind === 'dallas_user' ? 'Disconnect buddy' : 'Delete buddy'}
                 </Text>
               </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal animationType="fade" transparent visible={Boolean(reportingMessage)} onRequestClose={() => !submittingReport && setReportingMessage(null)}>
+        <View style={styles.deleteOverlay}>
+          <View style={styles.deleteDialog}>
+            <Text style={styles.deleteTitle}>Report this message?</Text>
+            <Text style={styles.deleteCopy}>The message and your reason will be sent confidentially to hello@attribut.me for review. Your report is stored privately for up to 12 months.</Text>
+            {reportingMessage ? <Text numberOfLines={4} style={styles.mutedText}>“{reportingMessage.preview}”</Text> : null}
+            <TextInput value={reportReason} onChangeText={setReportReason} placeholder="Why are you reporting this?" multiline style={styles.reportReasonInput} />
+            <View style={styles.deleteActions}>
+              <Pressable disabled={submittingReport} style={styles.secondaryButton} onPress={() => setReportingMessage(null)}><Text style={styles.secondaryButtonText}>Cancel</Text></Pressable>
+              <Pressable disabled={submittingReport || !reportReason.trim()} style={[styles.dangerButton, (submittingReport || !reportReason.trim()) && styles.disabledButton]} onPress={submitMessageReport}><Text style={styles.dangerButtonText}>{submittingReport ? 'Submitting...' : 'Confirm report'}</Text></Pressable>
             </View>
           </View>
         </View>
@@ -1462,8 +1499,9 @@ export default function DallasAppBuddiesScreen() {
                               >
                                 {externalReplies.map((reply) => (
                                   <View key={reply.id} style={[styles.messageBubble, styles.theirMessageBubble]}>
-                                    <Text style={styles.messageBody}>{reply.body}</Text>
+                                    <Text style={styles.messageBody}>{reply.moderation_removed_at ? 'This message was removed by moderation.' : reply.body}</Text>
                                     <Text style={styles.messageTime}>{formatDateTime(reply.created_at)}</Text>
+                                    {!reply.moderation_removed_at ? <Pressable onPress={() => { setReportReason(''); setReportingMessage({ id: reply.id, source: 'external_check_in_reply', preview: reply.body }); }}><Text style={styles.reportMessageLink}>Report message</Text></Pressable> : null}
                                   </View>
                                 ))}
                               </ScrollView>
@@ -1489,11 +1527,12 @@ export default function DallasAppBuddiesScreen() {
                                     style={[styles.messageBubble, isMine ? styles.myMessageBubble : styles.theirMessageBubble]}
                                   >
                                     <Text style={[styles.messageBody, isMine && styles.myMessageBody]}>
-                                      {buddyMessage.body}
+                                      {buddyMessage.moderation_removed_at ? 'This message was removed by moderation.' : buddyMessage.body}
                                     </Text>
                                     <Text style={[styles.messageTime, isMine && styles.myMessageTime]}>
                                       {formatDateTime(buddyMessage.created_at)}
                                     </Text>
+                                    {!isMine && !buddyMessage.moderation_removed_at ? <Pressable onPress={() => { setReportReason(''); setReportingMessage({ id: buddyMessage.id, source: 'buddy_message', preview: buddyMessage.body }); }}><Text style={styles.reportMessageLink}>Report message</Text></Pressable> : null}
                                   </View>
                                 );
                               })}
@@ -2441,6 +2480,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  reportMessageLink: { color: '#2E4737', fontFamily: 'Manrope', fontSize: 12, fontWeight: '800', marginTop: 8 },
+  reportReasonInput: { borderColor: '#D9DED6', borderRadius: 10, borderWidth: 1, color: '#26352B', fontFamily: 'Manrope', minHeight: 72, padding: 11, textAlignVertical: 'top' },
   myMessageTime: {
     color: '#D9E8E3',
   },
