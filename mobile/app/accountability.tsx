@@ -27,6 +27,7 @@ import {
   syncGrantedPushTokenAsync,
 } from '../src/lib/notifications';
 import { supabase } from '../src/lib/supabase';
+import { getPublicStorageUrl } from '../src/lib/storage';
 import { SectionCard } from '../src/components/SectionCard';
 
 type AccountabilityPartner = {
@@ -51,6 +52,13 @@ type AccountabilityPartner = {
 
 type AccountabilityProfile = {
   display_name: string | null;
+};
+
+type AccountabilityPartnerProfileAvatar = {
+  connected_user_id: string;
+  partner_id: string;
+  profile_avatar_path: string | null;
+  profile_display_name: string | null;
 };
 
 type AccountabilityCheckIn = {
@@ -256,34 +264,26 @@ export default function AccountabilityScreen() {
     }
 
     const nextPartners = data ?? [];
-    const connectedUserIds = nextPartners
-      .map((partner) => partner.connected_user_id)
-      .filter((userId): userId is string => Boolean(userId));
-
-    if (!connectedUserIds.length) {
-      setPartners(nextPartners);
-      return;
-    }
-
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('avatar_path, id')
-      .in('id', connectedUserIds);
+    const { data: avatarRows, error: avatarsError } = await supabase
+      .rpc('get_accountability_partner_profile_avatars');
 
     if (!mounted) {
       return;
     }
 
-    if (profilesError) {
-      setMessage(profilesError.message);
+    if (avatarsError) {
+      setMessage(avatarsError.message);
       setPartners(nextPartners);
       return;
     }
 
-    const profileAvatarPaths = new Map((profiles ?? []).map((profile) => [profile.id, profile.avatar_path]));
+    const avatarPathsByPartner = new Map(
+      ((avatarRows ?? []) as AccountabilityPartnerProfileAvatar[]).map((row) => [row.partner_id, row.profile_avatar_path]),
+    );
+
     setPartners(nextPartners.map((partner) => ({
       ...partner,
-      profile_avatar_path: partner.connected_user_id ? profileAvatarPaths.get(partner.connected_user_id) ?? null : null,
+      profile_avatar_path: avatarPathsByPartner.get(partner.id) ?? null,
     })));
   }
 
@@ -730,13 +730,17 @@ export default function AccountabilityScreen() {
       userId: session.user.id,
     });
 
-    const { error } = await supabase.from('accountability_planned_check_ins').insert({
-      notification_id: notificationId,
-      note: form.notes.trim() || null,
-      partner_id: partnerId,
-      scheduled_at: scheduledAt,
-      user_id: session.user.id,
-    });
+    const { data: plannedCheckIn, error } = await supabase
+      .from('accountability_planned_check_ins')
+      .insert({
+        notification_id: notificationId,
+        note: form.notes.trim() || null,
+        partner_id: partnerId,
+        scheduled_at: scheduledAt,
+        user_id: session.user.id,
+      })
+      .select('id')
+      .single();
 
     setAddingPlannedCheckIn(false);
 
@@ -746,7 +750,33 @@ export default function AccountabilityScreen() {
       return;
     }
 
+    const selectedPartnerForNotice = partners.find((partner) => partner.id === partnerId);
+    const { error: noticeError } = selectedPartnerForNotice?.partner_kind === 'dallas_user'
+      ? await supabase.functions.invoke('accountability-app', {
+        body: {
+          action: 'planned_check_in_notice',
+          partnerId,
+          plannedCheckInId: plannedCheckIn.id,
+        },
+      })
+      : { error: null };
+
     await loadPlannedCheckIns(partnerId);
+
+    if (noticeError) {
+      setMessage(`Planned check-in added for ${partnerName}, but the buddy notice could not be sent.`);
+      return;
+    }
+
+    if (selectedPartnerForNotice?.partner_kind === 'dallas_user') {
+      setMessage(
+        notificationId
+          ? `Planned check-in added for ${partnerName}. Your buddy was pre-warned.`
+          : `Planned check-in added for ${partnerName}. Your buddy was pre-warned; enable notifications to get your own alert.`,
+      );
+      return;
+    }
+
     setMessage(
       notificationId
         ? `Planned check-in added for ${partnerName}. Notification scheduled.`
@@ -1119,7 +1149,7 @@ export default function AccountabilityScreen() {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.container}>
-          <Text style={styles.eyebrow}>Reminders</Text>
+          <Text style={styles.eyebrow}>Check-in Planning</Text>
           <Text style={styles.title}>Sign in required</Text>
           <Text style={styles.copy}>Your accountability partners are available after signing in.</Text>
           <Link href="/" asChild>
@@ -1168,10 +1198,10 @@ export default function AccountabilityScreen() {
       </Modal>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardArea}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-          <Text style={styles.eyebrow}>Reminders</Text>
-          <Text style={styles.title}>Plan your reminders</Text>
+          <Text style={styles.eyebrow}>Check-in Planning</Text>
+          <Text style={styles.title}>Plan your next check-in</Text>
           <Text style={styles.copy}>
-            Set planned check-ins and reminders here. Open Check-in when you want to chat or check in with someone.
+            Set planned check-ins here. Open Check-in when you want to chat or check in with someone.
           </Text>
 
           {false && <SectionCard title="How are you doing right now?" description="Choose the closest fit. This is a check-in, not a judgment.">
@@ -1356,7 +1386,7 @@ export default function AccountabilityScreen() {
               onPress={handleAddPlannedCheckIn}
             >
               <Text style={styles.buttonText}>
-                {addingPlannedCheckIn ? 'Setting reminder...' : selectedPartner ? `Set reminder for ${selectedPartner?.name}` : 'Select a contact first'}
+                {addingPlannedCheckIn ? 'Setting check-in...' : selectedPartner ? `Set check-in for ${selectedPartner?.name}` : 'Select a contact first'}
               </Text>
             </Pressable>
           </SectionCard>
@@ -1996,11 +2026,11 @@ function getPartnerAvatarUrl(partner: AccountabilityPartner) {
 }
 
 function getPublicPartnerAvatarUrl(path: string) {
-  return supabase.storage.from('accountability-avatars').getPublicUrl(path).data.publicUrl;
+  return getPublicStorageUrl('accountability-avatars', path);
 }
 
 function getPublicProfileAvatarUrl(path: string) {
-  return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+  return getPublicStorageUrl('avatars', path);
 }
 
 function isInternationalPhoneNumber(value: string) {

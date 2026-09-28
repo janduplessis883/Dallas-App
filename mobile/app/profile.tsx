@@ -19,6 +19,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import { deviceStorage } from '../src/lib/deviceStorage';
 import { clearSupabaseLocalSession, supabase } from '../src/lib/supabase';
+import { getPublicStorageUrl } from '../src/lib/storage';
 
 const openAiApiKeyStorageKey = 'dallas.openai_api_key';
 
@@ -249,8 +250,15 @@ export default function ProfileScreen() {
     setSavingAvatar(true);
     setMessage('');
 
-    const response = await fetch(asset.uri);
-    const imageData = await response.arrayBuffer();
+    const imageData = await readImageData(asset.uri, (message) => {
+      setSavingAvatar(false);
+      setMessage(message);
+    });
+
+    if (!imageData) {
+      return;
+    }
+
     const { error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(avatarPath, imageData, {
@@ -321,8 +329,15 @@ export default function ProfileScreen() {
     setSavingHomeCoverImage(true);
     setMessage('');
 
-    const response = await fetch(asset.uri);
-    const imageData = await response.arrayBuffer();
+    const imageData = await readImageData(asset.uri, (message) => {
+      setSavingHomeCoverImage(false);
+      setMessage(message);
+    });
+
+    if (!imageData) {
+      return;
+    }
+
     const { error: uploadError } = await supabase.storage
       .from('home-covers')
       .upload(coverPath, imageData, {
@@ -747,6 +762,21 @@ async function chooseProfileImage(
   }
 }
 
+async function readImageData(uri: string, onError: (message: string) => void) {
+  try {
+    const response = await fetch(uri);
+
+    if (!response.ok) {
+      throw new Error(`Could not read the selected image (${response.status}).`);
+    }
+
+    return await response.arrayBuffer();
+  } catch (error) {
+    onError(error instanceof Error ? error.message : 'Could not read the selected image. Please try again.');
+    return null;
+  }
+}
+
 function getImageExtension(contentType: string, uri: string) {
   if (contentType.includes('png')) {
     return 'png';
@@ -770,15 +800,11 @@ function getMetadataValue(value: unknown) {
 }
 
 function getPublicAvatarUrl(path: string, cacheKey?: number) {
-  const publicUrl = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
-
-  return cacheKey ? `${publicUrl}?v=${cacheKey}` : publicUrl;
+  return getPublicStorageUrl('avatars', path, cacheKey);
 }
 
 function getPublicHomeCoverUrl(path: string, cacheKey?: number) {
-  const publicUrl = supabase.storage.from('home-covers').getPublicUrl(path).data.publicUrl;
-
-  return cacheKey ? `${publicUrl}?v=${cacheKey}` : publicUrl;
+  return getPublicStorageUrl('home-covers', path, cacheKey);
 }
 
 function isInternationalPhoneNumber(value: string) {

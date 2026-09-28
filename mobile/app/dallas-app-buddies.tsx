@@ -22,6 +22,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import { syncGrantedPushTokenAsync } from '../src/lib/notifications';
 import { supabase } from '../src/lib/supabase';
+import { getPublicStorageUrl } from '../src/lib/storage';
 
 type BuddyPartner = {
   app_connection_id: string | null;
@@ -43,6 +44,13 @@ type BuddyProfile = {
   avatar_path: string | null;
   display_name: string | null;
   id: string;
+};
+
+type BuddyProfileAvatarRow = {
+  connected_user_id: string;
+  partner_id: string;
+  profile_avatar_path: string | null;
+  profile_display_name: string | null;
 };
 
 type BuddyMessage = {
@@ -151,7 +159,7 @@ async function getFunctionErrorMessage(error: unknown) {
 }
 
 export default function DallasAppBuddiesScreen() {
-  const { buddyId } = useLocalSearchParams<{ buddyId?: string }>();
+  const { buddyId, connectionId } = useLocalSearchParams<{ buddyId?: string; connectionId?: string }>();
   const [appConnectLookup, setAppConnectLookup] = useState('');
   const [newBuddyName, setNewBuddyName] = useState('');
   const [newBuddyMobile, setNewBuddyMobile] = useState('');
@@ -340,7 +348,9 @@ export default function DallasAppBuddiesScreen() {
     await loadBuddySummaries(nextBuddies, userId, mounted);
 
     if (!expandedBuddyId && nextBuddies[0]) {
-      handleToggleBuddy(nextBuddies.find((buddy) => buddy.id === buddyId) ?? nextBuddies[0]);
+      handleToggleBuddy(
+        nextBuddies.find((buddy) => buddy.id === buddyId || buddy.app_connection_id === connectionId) ?? nextBuddies[0],
+      );
     }
   }
 
@@ -406,27 +416,30 @@ export default function DallasAppBuddiesScreen() {
   }
 
   async function loadBuddyProfiles(nextBuddies: BuddyPartner[], mounted = true) {
-    const userIds = nextBuddies
-      .map((buddy) => buddy.connected_user_id)
-      .filter((userId): userId is string => Boolean(userId));
-
-    if (!userIds.length) {
+    if (!nextBuddies.some((buddy) => buddy.partner_kind === 'dallas_user')) {
       setBuddyProfiles({});
       return;
     }
 
-    const { data } = await supabase
-      .from('profiles')
-      .select('avatar_path, display_name, id')
-      .in('id', userIds);
+    const { data, error } = await supabase.rpc('get_accountability_partner_profile_avatars');
 
     if (!mounted) {
       return;
     }
 
+    if (error) {
+      setMessage(error.message);
+      setBuddyProfiles({});
+      return;
+    }
+
     setBuddyProfiles(
-      (data ?? []).reduce<Record<string, BuddyProfile>>((profiles, profile) => {
-        profiles[profile.id] = profile;
+      ((data ?? []) as BuddyProfileAvatarRow[]).reduce<Record<string, BuddyProfile>>((profiles, row) => {
+        profiles[row.connected_user_id] = {
+          avatar_path: row.profile_avatar_path,
+          display_name: row.profile_display_name,
+          id: row.connected_user_id,
+        };
         return profiles;
       }, {}),
     );
@@ -1772,7 +1785,7 @@ function getLocalTime(timeZone: string | null) {
 }
 
 function getPublicAvatarUrl(path: string) {
-  return supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl;
+  return getPublicStorageUrl('avatars', path);
 }
 
 function getQuickDateOptions() {

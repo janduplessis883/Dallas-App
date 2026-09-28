@@ -21,7 +21,7 @@ const navigationItems = [
     activeColor: '#2E4737',
     href: '/accountability',
     icon: 'notifications',
-    label: 'Reminders',
+    label: 'Plan',
     routes: ['/accountability'],
   },
   {

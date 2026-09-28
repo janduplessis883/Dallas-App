@@ -20,6 +20,7 @@ import type { Session } from '@supabase/supabase-js';
 
 import { ensureNotificationChannelAsync, notificationChannelId, syncGrantedPushTokenAsync } from '../src/lib/notifications';
 import { supabase } from '../src/lib/supabase';
+import { getPublicStorageUrl } from '../src/lib/storage';
 
 type EventPlanField =
   | 'event_name'
@@ -2273,11 +2274,11 @@ function getBuddyAvatarUrl(buddy: DallasBuddy, profiles: Record<string, BuddyPro
   const profile = buddy.connected_user_id ? profiles[buddy.connected_user_id] : null;
 
   if (profile?.avatar_path) {
-    return supabase.storage.from('avatars').getPublicUrl(profile.avatar_path).data.publicUrl;
+    return getPublicStorageUrl('avatars', profile.avatar_path);
   }
 
   if (buddy.avatar_path) {
-    return supabase.storage.from('accountability-avatars').getPublicUrl(buddy.avatar_path).data.publicUrl;
+    return getPublicStorageUrl('accountability-avatars', buddy.avatar_path);
   }
 
   return '';

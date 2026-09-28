@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Notifications from 'expo-notifications';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -12,6 +12,7 @@ import { colors } from '../src/theme/designTokens';
 export default function RootLayout() {
   const [hasSession, setHasSession] = useState(false);
   const router = useRouter();
+  const handledNotificationIds = useRef(new Set<string>());
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setHasSession(Boolean(data.session)));
@@ -40,21 +41,34 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const route = response.notification.request.content.data?.route;
+    const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+      const notification = response.notification;
+      if (handledNotificationIds.current.has(notification.request.identifier)) return;
+      handledNotificationIds.current.add(notification.request.identifier);
 
-      if (route === '/event-planning') {
+      const data = notification.request.content.data ?? {};
+      const route = data.route;
+
+      if (data.type === 'accountability_app_message' || route === '/dallas-app-buddies') {
+        const buddyId = data.buddyId;
+        const connectionId = data.connectionId;
+        const params = buddyId ? { buddyId: String(buddyId) } : connectionId ? { connectionId: String(connectionId) } : undefined;
+        router.push(params ? { pathname: '/dallas-app-buddies', params } : '/dallas-app-buddies');
+      } else if (route === '/') {
+        router.push('/');
+      } else if (route === '/event-planning') {
         router.push('/event-planning');
       } else if (route === '/accountability') {
         router.push('/accountability');
-      } else if (route === '/dallas-app-buddies') {
-        const buddyId = response.notification.request.content.data?.buddyId;
-        router.push(buddyId ? { pathname: '/dallas-app-buddies', params: { buddyId: String(buddyId) } } : '/dallas-app-buddies');
       } else if (route === '/reminders') {
-        const reminderId = response.notification.request.content.data?.reminderId;
+        const reminderId = data.reminderId;
         router.push(reminderId ? { pathname: '/reminders', params: { reminderId: String(reminderId) } } : '/reminders');
       }
-    });
+    };
+
+    const initialResponse = Notifications.getLastNotificationResponse();
+    if (initialResponse) handleNotificationResponse(initialResponse);
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
     return () => subscription.remove();
   }, [router]);

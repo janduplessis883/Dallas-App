@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Session } from '@supabase/supabase-js';
 
 import { supabase } from '../src/lib/supabase';
+import { getPublicStorageUrl } from '../src/lib/storage';
 
 type PropheticVisionRow = {
   id: string;
@@ -231,16 +232,38 @@ export default function PropheticVisionScreen() {
         upsert: true,
       });
 
-    setUploadingCover(false);
-
     if (uploadError) {
+      setUploadingCover(false);
       setMessage(uploadError.message);
       return;
     }
 
+    const { data, error: saveError } = await supabase
+      .from('prophetic_visions')
+      .upsert({
+        audio_file_name: audioFileName || null,
+        audio_path: audioPath || null,
+        cover_image_path: storagePath,
+        id: visionId || undefined,
+        long_version: longVersion.trim(),
+        short_version: shortVersion.trim(),
+        updated_at: new Date().toISOString(),
+        user_id: session.user.id,
+      })
+      .select('id')
+      .single();
+
+    setUploadingCover(false);
+
+    if (saveError) {
+      setMessage(saveError.message);
+      return;
+    }
+
+    setVisionId(data.id);
     setCoverImagePath(storagePath);
     setCoverImageUrl(getPublicCoverImageUrl(storagePath, Date.now()));
-    setMessage('Cover image uploaded. Save your Prophetic Vision to keep it.');
+    setMessage('Cover image uploaded and saved.');
   }
 
   async function handleStartRecording() {
@@ -619,9 +642,7 @@ function getImageExtension(contentType: string, uri: string) {
 }
 
 function getPublicCoverImageUrl(path: string, cacheKey?: number) {
-  const publicUrl = supabase.storage.from('prophetic-vision-covers').getPublicUrl(path).data.publicUrl;
-
-  return cacheKey ? `${publicUrl}?v=${cacheKey}` : publicUrl;
+  return getPublicStorageUrl('prophetic-vision-covers', path, cacheKey);
 }
 
 async function chooseCoverImage(onError: (message: string) => void) {
