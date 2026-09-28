@@ -116,6 +116,20 @@ create table if not exists public.accountability_app_connections (
   check (requester_user_id <> recipient_user_id)
 );
 
+create table if not exists public.accountability_planned_check_in_notices (
+  id uuid primary key default gen_random_uuid(),
+  planned_check_in_id uuid not null references public.accountability_planned_check_ins(id) on delete cascade,
+  connection_id uuid not null references public.accountability_app_connections(id) on delete cascade,
+  planner_user_id uuid not null references auth.users(id) on delete cascade,
+  recipient_user_id uuid not null references auth.users(id) on delete cascade,
+  scheduled_at timestamptz not null,
+  note text,
+  planner_display_name text not null default 'A Dallas buddy',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (planned_check_in_id)
+);
+
 create table if not exists public.accountability_app_invitations (
   id uuid primary key default gen_random_uuid(),
   requester_user_id uuid not null references auth.users(id) on delete cascade,
@@ -374,6 +388,9 @@ create index if not exists accountability_planned_check_ins_partner_id_scheduled
 create index if not exists accountability_planned_check_ins_user_partner_status_scheduled_at_idx
   on public.accountability_planned_check_ins (user_id, partner_id, status, scheduled_at);
 
+create index if not exists accountability_planned_check_in_notices_recipient_scheduled_idx
+  on public.accountability_planned_check_in_notices (recipient_user_id, scheduled_at);
+
 create index if not exists accountability_check_in_threads_user_id_updated_at_idx
   on public.accountability_check_in_threads (user_id, updated_at desc);
 
@@ -419,6 +436,7 @@ alter table public.recovery_plans enable row level security;
 alter table public.accountability_partners enable row level security;
 alter table public.accountability_check_ins enable row level security;
 alter table public.accountability_planned_check_ins enable row level security;
+alter table public.accountability_planned_check_in_notices enable row level security;
 alter table public.accountability_check_in_threads enable row level security;
 alter table public.accountability_check_in_messages enable row level security;
 alter table public.accountability_check_in_reply_rate_limits enable row level security;
@@ -481,6 +499,16 @@ create policy "Users can manage their own planned accountability check-ins"
   for all
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
+
+revoke all on table public.accountability_planned_check_in_notices from anon, authenticated;
+grant select on table public.accountability_planned_check_in_notices to authenticated;
+
+drop policy if exists "Recipients can view planned check-in notices" on public.accountability_planned_check_in_notices;
+create policy "Recipients can view planned check-in notices"
+  on public.accountability_planned_check_in_notices
+  for select
+  to authenticated
+  using ((select auth.uid()) = recipient_user_id);
 
 drop policy if exists "Users can manage their own check-in threads" on public.accountability_check_in_threads;
 create policy "Users can manage their own check-in threads"
@@ -678,6 +706,51 @@ revoke all on function public.get_buddy_summaries() from public;
 grant execute on function public.get_check_in_badge() to authenticated;
 grant execute on function public.get_buddy_summaries() to authenticated;
 
+create or replace function public.get_accountability_partner_profile_avatars()
+returns table (
+  partner_id uuid,
+  connected_user_id uuid,
+  profile_avatar_path text,
+  profile_display_name text
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    partner.id as partner_id,
+    partner.connected_user_id,
+    profile.avatar_path as profile_avatar_path,
+    profile.display_name as profile_display_name
+  from public.accountability_partners partner
+  join public.profiles profile
+    on profile.id = partner.connected_user_id
+  where partner.user_id = (select auth.uid())
+    and partner.partner_kind = 'dallas_user'
+    and partner.connected_user_id is not null
+    and exists (
+      select 1
+      from public.accountability_app_connections connection
+      where connection.id = partner.app_connection_id
+        and connection.status = 'active'
+        and (
+          (
+            connection.requester_user_id = (select auth.uid())
+            and connection.recipient_user_id = partner.connected_user_id
+          )
+          or (
+            connection.recipient_user_id = (select auth.uid())
+            and connection.requester_user_id = partner.connected_user_id
+          )
+        )
+    );
+$$;
+
+revoke all on function public.get_accountability_partner_profile_avatars() from public;
+revoke all on function public.get_accountability_partner_profile_avatars() from anon;
+grant execute on function public.get_accountability_partner_profile_avatars() to authenticated;
+
 create or replace function public.claim_due_recovery_reminders(batch_size integer default 100)
 returns table (
   id text,
@@ -833,6 +906,11 @@ create trigger set_accountability_partners_updated_at
 drop trigger if exists set_accountability_planned_check_ins_updated_at on public.accountability_planned_check_ins;
 create trigger set_accountability_planned_check_ins_updated_at
   before update on public.accountability_planned_check_ins
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists set_accountability_planned_check_in_notices_updated_at on public.accountability_planned_check_in_notices;
+create trigger set_accountability_planned_check_in_notices_updated_at
+  before update on public.accountability_planned_check_in_notices
   for each row execute function public.set_updated_at();
 
 drop trigger if exists set_accountability_check_in_threads_updated_at on public.accountability_check_in_threads;
@@ -1058,3 +1136,179 @@ create policy "Users can delete their own prophetic vision audio"
     bucket_id = 'prophetic-vision-audio'
     and (select auth.uid())::text = (storage.foldername(name))[1]
   );
+-- User roles, private reports, audit records, and protected message writes.
+
+alter table public.profiles
+  add column if not exists user_role text not null default 'user';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'profiles_user_role_check'
+      and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_user_role_check check (user_role in ('user', 'admin'));
+  end if;
+end;
+$$;
+
+-- Clients may edit ordinary profile fields only. Direct SQL in Supabase can
+-- still assign the admin role; clients and the app cannot.
+revoke insert, update, delete on table public.profiles from public, anon, authenticated;
+grant select on table public.profiles to authenticated;
+grant insert (id, display_name, phone_number, avatar_path, home_cover_image_path, updated_at)
+  on public.profiles to authenticated;
+grant update (display_name, phone_number, avatar_path, home_cover_image_path, updated_at)
+  on public.profiles to authenticated;
+
+alter table public.accountability_app_messages
+  add column if not exists moderation_removed_at timestamptz;
+
+alter table public.accountability_check_in_messages
+  add column if not exists moderation_removed_at timestamptz;
+
+-- Buddy messages must go through accountability-app so server filtering cannot
+-- be bypassed with a direct Data API insert. Clients may only update read_at.
+drop policy if exists "Users can create Dallas accountability messages" on public.accountability_app_messages;
+revoke insert, update, delete on table public.accountability_app_messages from public, anon, authenticated;
+grant update (read_at) on public.accountability_app_messages to authenticated;
+
+-- External partner replies are inserted by check-in-reply with service-role
+-- credentials. Signed-in users may insert their own outbound ('user') notes and
+-- mark reply rows read, but cannot impersonate a partner or change message text.
+drop policy if exists "Users can manage their own check-in messages" on public.accountability_check_in_messages;
+drop policy if exists "Users can read their own check-in messages" on public.accountability_check_in_messages;
+drop policy if exists "Users can add outbound check-in messages" on public.accountability_check_in_messages;
+drop policy if exists "Users can mark their own check-in messages read" on public.accountability_check_in_messages;
+create policy "Users can read their own check-in messages"
+  on public.accountability_check_in_messages
+  for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+create policy "Users can add outbound check-in messages"
+  on public.accountability_check_in_messages
+  for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id and sender_type = 'user');
+create policy "Users can mark their own check-in messages read"
+  on public.accountability_check_in_messages
+  for update
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+revoke insert, update, delete on table public.accountability_check_in_messages from public, anon, authenticated;
+grant select on table public.accountability_check_in_messages to authenticated;
+grant insert (user_id, partner_id, thread_id, sender_type, body)
+  on public.accountability_check_in_messages to authenticated;
+grant update (read_at) on public.accountability_check_in_messages to authenticated;
+
+create table if not exists public.moderation_reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_user_id uuid references auth.users(id) on delete set null,
+  subject_user_id uuid references auth.users(id) on delete set null,
+  source text not null check (source in ('buddy_message', 'external_check_in_reply')),
+  source_message_id uuid not null,
+  request_key uuid not null unique,
+  reason text not null check (char_length(trim(reason)) between 1 and 500),
+  message_snapshot text not null check (char_length(message_snapshot) between 1 and 1000),
+  status text not null default 'new' check (status in ('new', 'in_review', 'resolved', 'dismissed')),
+  review_note text check (review_note is null or char_length(review_note) <= 2000),
+  email_status text not null default 'queued' check (email_status in ('queued', 'sent')),
+  email_attempt_count integer not null default 0 check (email_attempt_count >= 0),
+  email_next_attempt_at timestamptz not null default now(),
+  email_sent_at timestamptz,
+  email_last_error text check (email_last_error is null or char_length(email_last_error) <= 500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '12 months')
+);
+
+create index if not exists moderation_reports_status_created_at_idx
+  on public.moderation_reports (status, created_at desc);
+create index if not exists moderation_reports_email_retry_idx
+  on public.moderation_reports (email_next_attempt_at)
+  where email_status = 'queued';
+create index if not exists moderation_reports_expires_at_idx
+  on public.moderation_reports (expires_at);
+
+create table if not exists public.moderation_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_user_id uuid references auth.users(id) on delete set null,
+  target_user_id uuid references auth.users(id) on delete set null,
+  report_id uuid references public.moderation_reports(id) on delete set null,
+  action text not null check (action in (
+    'report_submitted', 'report_reviewed', 'report_resolved', 'report_dismissed',
+    'email_retry', 'message_removed', 'message_restored', 'account_suspended',
+    'account_reinstated'
+  )),
+  reason text check (reason is null or char_length(reason) <= 2000),
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '12 months')
+);
+
+create index if not exists moderation_audit_log_expires_at_idx
+  on public.moderation_audit_log (expires_at);
+create index if not exists moderation_audit_log_report_id_created_at_idx
+  on public.moderation_audit_log (report_id, created_at desc);
+
+alter table public.moderation_reports enable row level security;
+alter table public.moderation_audit_log enable row level security;
+revoke all on table public.moderation_reports, public.moderation_audit_log from public, anon, authenticated;
+grant all on table public.moderation_reports, public.moderation_audit_log to service_role;
+
+drop trigger if exists set_moderation_reports_updated_at on public.moderation_reports;
+create trigger set_moderation_reports_updated_at
+  before update on public.moderation_reports
+  for each row execute function public.set_updated_at();
+
+-- Delete report snapshots and audit events after the disclosed 12-month period.
+create or replace function public.purge_expired_moderation_data()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  removed_count integer;
+begin
+  delete from public.moderation_reports where expires_at <= now();
+  get diagnostics removed_count = row_count;
+  delete from public.moderation_audit_log where expires_at <= now();
+  return removed_count;
+end;
+$$;
+revoke all on function public.purge_expired_moderation_data() from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'dallas-moderation-retention') then
+    perform cron.unschedule('dallas-moderation-retention');
+  end if;
+  if exists (select 1 from cron.job where jobname = 'dallas-moderation-email-retry') then
+    perform cron.unschedule('dallas-moderation-email-retry');
+  end if;
+end;
+$$;
+
+select cron.schedule(
+  'dallas-moderation-retention',
+  '17 3 * * *',
+  $$select public.purge_expired_moderation_data();$$
+);
+
+select cron.schedule(
+  'dallas-moderation-email-retry',
+  '*/10 * * * *',
+  $$select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'dallas_moderation_project_url') || '/functions/v1/retry-message-reports',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-moderation-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'dallas_moderation_cron_secret')
+    ),
+    body := '{}'::jsonb
+  );$$
+);

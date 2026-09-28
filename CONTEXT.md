@@ -15,6 +15,8 @@
 - **Invitation notification**: a push notification sent to the recipient when a new buddy invitation is created, in addition to the in-app invitation indicator.
 - **Missed planned check-in**: a planned check-in that reaches ten minutes after its scheduled time without a recorded final outcome. It is distinct from a deliberately skipped check-in.
 - **Past check-in**: a completed or missed check-in displayed after active planned check-ins for a buddy.
+- **Check-in Planning**: the planning area for selecting buddies and scheduling future check-ins. It is distinct from recovery reminder settings.
+- **Incoming planned check-in notice**: a pre-warning shown to a Dallas buddy when another Dallas user schedules a future check-in with them.
 
 ## Lifecycle rules
 
@@ -27,3 +29,12 @@
 - When a buddy's Check-in submenu loads, overdue planned check-ins are recorded as missed and appear in Past check-ins.
 - Past check-ins remain stored but are shown in the app only for the most recent fourteen days, with at most ten entries per buddy.
 - Planned check-ins do not support rescheduling or a declined outcome.
+
+## Messaging moderation
+
+- Dallas App Buddy messages and external check-in replies use the same server-side prohibited-content filter before insertion.
+- Users may report only received messages; reports are private, emailed to `hello@attribut.me`, and retained in Dallas for up to twelve months.
+- Reporting does not automatically block a sender, remove content, or suspend an account.
+- Moderators can review or resolve reports, soft-remove and restore the associated message, and suspend or reinstate Dallas accounts. External check-in partners do not have Dallas accounts to suspend.
+- A message removed by moderation appears to conversation participants as a neutral removal notice; the original remains only in the private report snapshot during its retention period.
+- Only a direct database update to `profiles.user_role` can grant the admin role. The mobile navigation hides Moderation from non-admins, and each moderation request verifies the persisted role server-side.

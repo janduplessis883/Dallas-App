@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { moderateMessage } from '../_shared/message-moderation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -50,6 +51,12 @@ Deno.serve(async (request) => {
 
       if (message.length > 1000) {
         return jsonResponse({ error: 'Keep replies under 1000 characters.' }, 400);
+      }
+
+      const moderation = moderateMessage(message);
+
+      if (!moderation.allowed) {
+        return jsonResponse({ error: moderation.reason }, 400);
       }
 
       if (!confirmed) {

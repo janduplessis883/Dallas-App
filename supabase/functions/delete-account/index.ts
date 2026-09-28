@@ -60,6 +60,24 @@ Deno.serve(async (request) => {
 
     const userId = userData.user.id;
 
+    const { error: reportRedactionError } = await adminClient
+      .from('moderation_reports')
+      .update({ reporter_user_id: null, subject_user_id: null })
+      .or(`reporter_user_id.eq.${userId},subject_user_id.eq.${userId}`);
+
+    if (reportRedactionError) {
+      return jsonResponse({ error: reportRedactionError.message }, 500);
+    }
+
+    const { error: auditRedactionError } = await adminClient
+      .from('moderation_audit_log')
+      .update({ actor_user_id: null, target_user_id: null })
+      .or(`actor_user_id.eq.${userId},target_user_id.eq.${userId}`);
+
+    if (auditRedactionError) {
+      return jsonResponse({ error: auditRedactionError.message }, 500);
+    }
+
     const { error: invitationError } = await adminClient
       .from('accountability_app_invitations')
       .delete()

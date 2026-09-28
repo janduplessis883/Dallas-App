@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { moderateMessage } from '../_shared/message-moderation.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -54,6 +55,10 @@ Deno.serve(async (request) => {
     }
     if (action === 'disconnect' || action === 'block' || action === 'unblock') {
       return changeConnection(adminClient, userData.user, action, body);
+    }
+
+    if (action === 'planned_check_in_notice') {
+      return createPlannedCheckInNotice(adminClient, userData.user, body);
     }
 
     if (action === 'send_message') {
@@ -194,6 +199,12 @@ async function sendMessage(
     return jsonResponse({ error: 'Keep messages under 1000 characters.' }, 400);
   }
 
+  const moderation = moderateMessage(message);
+
+  if (!moderation.allowed) {
+    return jsonResponse({ error: moderation.reason }, 400);
+  }
+
   const { data: connection, error: connectionError } = await adminClient
     .from('accountability_app_connections')
     .select('id, requester_user_id, recipient_user_id, status')
@@ -247,6 +258,114 @@ async function sendMessage(
   });
 
   return jsonResponse({ message: insertedMessage });
+}
+
+async function createPlannedCheckInNotice(
+  adminClient: ReturnType<typeof createClient>,
+  user: AuthUser,
+  body: Record<string, unknown>,
+) {
+  const plannedCheckInId = String(body.plannedCheckInId ?? '').trim();
+  const partnerId = String(body.partnerId ?? '').trim();
+
+  if (!plannedCheckInId || !partnerId) {
+    return jsonResponse({ error: 'Planned check-in notice details are missing.' }, 400);
+  }
+
+  const { data: plannedCheckIn, error: plannedError } = await adminClient
+    .from('accountability_planned_check_ins')
+    .select('id, note, partner_id, scheduled_at, user_id')
+    .eq('id', plannedCheckInId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (plannedError) {
+    return jsonResponse({ error: plannedError.message }, 400);
+  }
+
+  if (!plannedCheckIn || plannedCheckIn.partner_id !== partnerId) {
+    return jsonResponse({ error: 'Planned check-in was not found.' }, 404);
+  }
+
+  const { data: partner, error: partnerError } = await adminClient
+    .from('accountability_partners')
+    .select('app_connection_id, connected_user_id, id, name, partner_kind, user_id')
+    .eq('id', partnerId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (partnerError) {
+    return jsonResponse({ error: partnerError.message }, 400);
+  }
+
+  if (!partner || partner.partner_kind !== 'dallas_user' || !partner.connected_user_id || !partner.app_connection_id) {
+    return jsonResponse({ notified: false, reason: 'not_dallas_buddy' });
+  }
+
+  const { data: connection, error: connectionError } = await adminClient
+    .from('accountability_app_connections')
+    .select('id, requester_user_id, recipient_user_id, status')
+    .eq('id', partner.app_connection_id)
+    .maybeSingle();
+
+  if (connectionError) {
+    return jsonResponse({ error: connectionError.message }, 400);
+  }
+
+  if (
+    !connection ||
+    connection.status !== 'active' ||
+    !(
+      (connection.requester_user_id === user.id && connection.recipient_user_id === partner.connected_user_id) ||
+      (connection.recipient_user_id === user.id && connection.requester_user_id === partner.connected_user_id)
+    )
+  ) {
+    return jsonResponse({ notified: false, reason: 'inactive_connection' });
+  }
+
+  const profile = await ensureProfile(adminClient, user);
+  const plannerDisplayName = profile.display_name || getUserDisplayName(user);
+
+  const { error: noticeError } = await adminClient
+    .from('accountability_planned_check_in_notices')
+    .upsert({
+      connection_id: connection.id,
+      note: plannedCheckIn.note,
+      planned_check_in_id: plannedCheckIn.id,
+      planner_display_name: plannerDisplayName,
+      planner_user_id: user.id,
+      recipient_user_id: partner.connected_user_id,
+      scheduled_at: plannedCheckIn.scheduled_at,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'planned_check_in_id',
+    });
+
+  if (noticeError) {
+    return jsonResponse({ error: noticeError.message }, 400);
+  }
+
+  const scheduledAt = new Date(plannedCheckIn.scheduled_at);
+  const scheduledText = Number.isNaN(scheduledAt.getTime())
+    ? 'soon'
+    : scheduledAt.toLocaleString('en-GB', {
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      month: 'short',
+    });
+
+  await sendPushNotification(adminClient, partner.connected_user_id, {
+    body: `${plannerDisplayName} planned a check-in with you for ${scheduledText}.`,
+    data: {
+      plannedCheckInId: plannedCheckIn.id,
+      route: '/',
+      type: 'planned_check_in_notice',
+    },
+    title: 'Planned check-in notice',
+  });
+
+  return jsonResponse({ notified: true });
 }
 
 async function ensureProfile(adminClient: ReturnType<typeof createClient>, user: AuthUser) {
